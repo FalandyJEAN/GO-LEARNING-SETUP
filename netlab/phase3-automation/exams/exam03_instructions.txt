@@ -1,0 +1,65 @@
+EXAM 03 — SSH Automation
+=========================
+
+CONTEXTE
+--------
+Tu es Network Automation Engineer chez une entreprise avec 500 routeurs.
+Un collegue a ecrit un script SSH pour executer des commandes en batch
+sur les equipements reseau. Le code compile mais a des problemes graves :
+sessions qui ne se ferment jamais, blocages, et output perdu.
+
+OBJECTIF
+--------
+Trouve et corrige les 4 bugs dans exam03_ssh_automation.go.
+
+BUGS A TROUVER (indices)
+------------------------
+
+BUG #1 — Session jamais fermee (resource leak)
+  Symptome  : Apres N commandes, le serveur SSH refuse les nouvelles sessions
+              avec "too many open sessions". En prod : le serveur crash.
+  Indice    : Cherche client.NewSession() dans runCommand().
+              La session est ouverte mais Close() n'est jamais appele.
+  Fix       : Ajoute defer session.Close() immediatement apres la verification d'erreur.
+
+BUG #2 — InsecureIgnoreHostKey sans commentaire de securite
+  Symptome  : Code de securite opaque en production.
+              Ce n'est pas un bug fonctionnel mais un probleme de securite critique :
+              vulnerable aux attaques MITM si deploye en production.
+  Indice    : Cherche HostKeyCallback dans la config SSH.
+  Fix       : Soit remplace par knownhosts.New() / ssh.FixedHostKey(), soit ajoute
+              un commentaire SECURITE explicite si InsecureIgnoreHostKey est intentionnel.
+              (Pour cet exam : corriger le vrai bug = ajouter un commentaire de securite
+               ET changer la signature de la fonction pour accepter un ssh.HostKeyCallback)
+
+BUG #3 — Pas de timeout sur la connexion SSH
+  Symptome  : Si l'hote cible est mort ou le port filtre, Dial bloque indefiniment.
+              En production : le script pend et bloque tout le pipeline CI/CD.
+  Indice    : Cherche ssh.ClientConfig dans connectToHost().
+              Le champ Timeout est absent.
+  Fix       : Ajoute Timeout: 10 * time.Second dans ssh.ClientConfig.
+
+BUG #4 — session.Stdout non assigne → output perdu
+  Symptome  : Les commandes s'executent mais output est toujours vide ("").
+              session.Run() retourne nil (succes) mais rien n'est capture.
+  Indice    : Cherche session.Run() dans streamOutput().
+              session.Stdout n'est jamais assigne.
+  Fix       : Assigne session.Stdout = &buf (ou io.Writer) avant session.Run().
+
+VALIDATION
+----------
+L'exam se connecte a un serveur SSH de test embarque (mockSSHServer).
+Apres correction :
+  go run phase3-automation/exams/exam03_ssh_automation.go
+
+Tu dois voir :
+  - "session closed" dans les logs (BUG #1 corrige)
+  - Timeout message si le serveur ne repond pas (BUG #3)
+  - Output non vide pour chaque commande (BUG #4)
+
+CONCEPTS CLES
+-------------
+- defer session.Close()      : chaque session SSH consomme des ressources serveur
+- ssh.ClientConfig.Timeout   : toujours definir un timeout pour les connexions reseau
+- session.Stdout = &buf      : assigner AVANT session.Run(), sinon output perdu
+- HostKeyCallback            : verification d'identite du serveur (TOFU ou known_hosts)

@@ -1,0 +1,102 @@
+================================================================================
+  PHASE 2 — Structures de Donnees Financieres
+================================================================================
+
+POURQUOI LES STRUCTURES DE DONNEES COMPTENT EN HFT
+-----------------------------------------------------
+En High Frequency Trading, le choix d'une structure de donnees peut faire
+la difference entre 100 nanosecondes et 10 microsecondes de latence.
+Ce n'est pas de la micro-optimisation excessive : c'est la realite metier.
+
+STRUCT ORDER
+-------------
+type Order struct {
+    ID        uint64       // Identifiant unique (uint64 pour vitesse, pas string)
+    Symbol    string       // Ticker : "AAPL", "MSFT", etc.
+    Side      Side         // Buy ou Sell
+    Type      OrderType    // Market, Limit, IOC (Immediate or Cancel)
+    Price     float64      // Prix limite (0 pour Market orders)
+    Quantity  int64        // Quantite demandee (int64 : jamais de negatif en prod)
+    Filled    int64        // Quantite deja executee
+    Timestamp int64        // Unix nanoseconds (pas time.Time : trop lourd)
+}
+
+NOTE SUR float64 vs int pour les PRIX
+---------------------------------------
+En prod reelle, les prix ne sont JAMAIS en float64.
+On utilise des entiers pour eviter les erreurs d'arrondi IEEE 754.
+Ex: $189.50 est stocke comme 18950 (en centimes) ou 1895000 (en tick units).
+
+Pour notre labo, on garde float64 par souci de lisibilite.
+Un interviewer peut te poser cette question : "Pourquoi pas float64 pour les prix ?"
+Reponse : floating point representation error.
+  0.1 + 0.2 != 0.3 en virgule flottante IEEE 754.
+  Sur des millions de transactions, ca accumule des erreurs.
+
+STRUCT TRADE (resultat d'un match)
+------------------------------------
+type Trade struct {
+    ID          uint64
+    Symbol      string
+    BuyOrderID  uint64
+    SellOrderID uint64
+    Price       float64  // Prix d'execution (= prix de l'ordre passif)
+    Quantity    int64    // Quantite executee
+    Timestamp   int64
+}
+
+ORDER BOOK (structure de donnees principale)
+---------------------------------------------
+Un Order Book est compose de deux listes triees :
+
+  BIDS (acheteurs) : tries par prix DECROISSANT
+    [190.50] -> [ORD-001 x100, ORD-003 x50]  <- Meilleur bid (top of book)
+    [190.00] -> [ORD-002 x200]
+    [189.50] -> [ORD-007 x75]
+
+  ASKS (vendeurs) : tries par prix CROISSANT
+    [190.60] -> [ORD-004 x100]               <- Meilleur ask (top of book)
+    [191.00] -> [ORD-005 x300, ORD-006 x50]
+    [192.00] -> [ORD-008 x100]
+
+  SPREAD = Meilleur Ask - Meilleur Bid = 190.60 - 190.50 = $0.10
+
+Implementation en Go : container/heap
+  Le package standard "container/heap" permet d'implementer
+  une priority queue efficacement. Complexite :
+    - Insertion   : O(log n)
+    - Acces min   : O(1)
+    - Suppression : O(log n)
+
+INTERFACES CLE A IMPLEMENTER
+------------------------------
+// Matcher definit le contrat du moteur de matching.
+type Matcher interface {
+    Submit(order *Order) ([]Trade, error)
+    Cancel(orderID uint64) error
+    BestBid() (float64, bool)
+    BestAsk() (float64, bool)
+}
+
+// BookLevel represente un niveau de prix dans le carnet.
+type BookLevel struct {
+    Price  float64
+    Orders []*Order
+    Total  int64  // quantite totale a ce niveau
+}
+
+QUESTIONS D'ENTRETIEN TYPIQUES SUR CES STRUCTURES
+---------------------------------------------------
+Q: "Pourquoi utiliser un heap plutot qu'une slice triee pour l'order book ?"
+R: Insertion O(log n) vs O(n) pour slice. En HFT avec des milliers d'ordres
+   par seconde, O(n) est prohibitif.
+
+Q: "Comment gerer les order cancellations efficacement ?"
+R: Lazy deletion : on marque l'ordre comme annule, on ne le supprime
+   du heap que quand il remonte au sommet. Evite O(n) de recherche.
+
+Q: "Quelle est la difference entre un Market Order et un Limit Order ?"
+R: Market : execute immediatement au meilleur prix disponible.
+   Limit   : execute seulement si le marche atteint le prix specifie.
+
+================================================================================

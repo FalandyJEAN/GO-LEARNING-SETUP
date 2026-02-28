@@ -1,0 +1,79 @@
+================================================================================
+  PHASE 2 — PROJET FIL ROUGE : Moteur de Matching d'Ordres
+  Nom du systeme : GoMatchEngine (GME)
+================================================================================
+
+VUE D'ENSEMBLE
+--------------
+Nous allons construire un Order Matching Engine — le coeur de toute bourse
+electronique. C'est le systeme qui, quand tu passes un ordre d'achat sur
+AAPL a $189.50, le met en face d'un ordre de vente compatible et execute
+la transaction.
+
+Des exchanges comme NASDAQ, NYSE Euronext, ou les dark pools des banques
+utilisent des variantes de ce systeme.
+
+ALGORITHME DE MATCHING : FIFO Price-Time Priority
+--------------------------------------------------
+Regle 1 (PRIX) : L'ordre avec le meilleur prix est execute en premier.
+  - Pour les acheteurs (BID) : prix le PLUS HAUT en priorite.
+  - Pour les vendeurs (ASK)  : prix le PLUS BAS en priorite.
+
+Regle 2 (TEMPS) : A prix egal, l'ordre arrive en PREMIER est execute en premier.
+  (FIFO = First In, First Out)
+
+Exemple :
+  SELL AAPL x100 @ $190.00  (arrive a T=1)
+  SELL AAPL x50  @ $190.00  (arrive a T=2)
+  SELL AAPL x200 @ $191.00  (arrive a T=3)
+
+  Un BUY @ $190.50 sera matche d'abord avec l'ordre de T=1, puis T=2.
+  L'ordre @ $191.00 ne sera PAS execute (prix trop eleve pour l'acheteur).
+
+ARCHITECTURE DU SYSTEME
+------------------------
+
+  [Client] --> [Order Gateway] --> [Order Book] --> [Matching Engine]
+                                                           |
+                                              [Trade Publisher] --> [Market Data Feed]
+
+  Composants :
+
+  1. OrderGateway   : Valide et route les ordres entrants.
+  2. OrderBook      : Maintient les listes BID et ASK triees.
+                      Structure : 2 Priority Queues (heap)
+  3. MatchingEngine : Applique l'algorithme FIFO Price-Time Priority.
+  4. TradePublisher : Publie les trades executes (via channel Go).
+
+ARBORESCENCE DES FICHIERS (Phase 2)
+-------------------------------------
+  phase2-order-engine/
+  |-- specs/
+  |   |-- architecture.txt          <- Ce fichier
+  |   |-- data_structures.txt       <- Detail des structs Go
+  |
+  |-- order.go                      <- Types : Order, Side, OrderType
+  |-- orderbook.go                  <- Struct OrderBook + methodes
+  |-- matching_engine.go            <- Logique de matching
+  |-- trade.go                      <- Struct Trade (resultat d'un match)
+  |-- gateway.go                    <- Validation et routing
+  |-- main.go                       <- Point d'entree et simulation
+  |-- orderbook_test.go             <- Tests unitaires (OBLIGATOIRES)
+
+CONTRAINTES TECHNIQUES (comme en prod)
+---------------------------------------
+  - Pas d'allocation memoire dans le hot path (le matching lui-meme).
+  - Utiliser sync.Pool pour recycler les objets Order.
+  - Le OrderBook doit etre thread-safe (acces concurrent des goroutines).
+  - Latence cible : < 1 microseconde pour un match simple.
+  - Zero dependances externes (stdlib uniquement).
+
+ON CONSTRUIRA ETAPE PAR ETAPE
+------------------------------
+  Etape 2.1 : order.go         -> Types de base
+  Etape 2.2 : orderbook.go     -> Structure de donnees (heap)
+  Etape 2.3 : matching_engine  -> Algorithme de matching
+  Etape 2.4 : Goroutines       -> Concurrence (Phase 3 integree)
+  Etape 2.5 : Benchmarks       -> go test -bench (Performance)
+
+================================================================================

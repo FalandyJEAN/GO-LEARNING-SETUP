@@ -1,0 +1,89 @@
+================================================================================
+  EXAMEN PHASE 3-A — "La Data Race Silencieuse"
+  Niveau    : Intermediaire-Avance
+  Concepts  : Goroutines, sync.RWMutex, data races, race detector
+  Duree     : 45 a 75 minutes
+================================================================================
+
+CONTEXTE METIER
+---------------
+L'equipe a deploye un agregateur de prix de marche (MarketDataCache).
+En production, il agregge les prix de 5 exchanges differents en parallele.
+Les tests unitaires passent tous. En production, le monitoring remonte :
+
+  INCIDENT : Les prix affiches dans l'interface de trading sont parfois
+  incorrects. Un trader a failli vendre 10 000 AAPL au mauvais prix.
+  Le systeme de monitoring CPU montre des acces memoire non-atomiques.
+
+Le Tech Lead a isole le composant suspect : exam_data_race.go.
+
+BUG #1 : Data Race sur la map prices
+  Plusieurs goroutines ecrivent et lisent simultanement dans la meme map
+  sans synchronisation. En Go, une map n'est PAS thread-safe par defaut.
+  Resultat : corruption memoire silencieuse, crash occasionnel, valeurs
+  incorrectes. Le go race detector le detecte, mais seulement si on le lance.
+
+BUG #2 : Data Race sur le compteur updateCount
+  Un int64 lu et ecrit par plusieurs goroutines sans atomicite.
+  Solution : sync/atomic ou sync.Mutex.
+
+BUG #3 : Goroutine lancee sans WaitGroup
+  Le main() se termine avant que toutes les goroutines aient fini.
+  Les dernieres mises a jour sont perdues. Resultat non-deterministe.
+
+COMMANDES
+---------
+  # Lancer normalement (peut sembler fonctionner)
+  go run phase3-concurrency/exams/exam_data_race.go
+
+  # CRITIQUE : Lancer avec le race detector
+  go run -race phase3-concurrency/exams/exam_data_race.go
+
+  Le race detector DOIT detecter des races. Apres ta correction, il ne
+  doit plus en detecter.
+
+CONCEPTS CLE
+-------------
+
+A) LE RACE DETECTOR
+   go run -race, go test -race, go build -race
+   Instrumente le code pour detecter les acces concurrents non proteges.
+   Overhead : ~2-20x plus lent, ~5-10x plus de memoire. JAMAIS en prod.
+   Utiliser en developpement et dans les tests CI.
+
+B) SYNC.RWMUTEX
+   sync.Mutex    : exclusif — un seul goroutine a la fois (lecture OU ecriture)
+   sync.RWMutex  : multiple lecteurs OU un seul ecrivain
+
+   Quand utiliser RWMutex : si les lectures sont beaucoup plus frequentes
+   que les ecritures (ex: price cache lu 1000x/s, mis a jour 10x/s).
+
+   IMPORTANT : Ne jamais appeler RLock si on va ecrire. Cela semble marcher
+   mais c'est une race condition. Tres courant comme bug.
+
+C) SYNC/ATOMIC
+   Pour des valeurs simples (int64, int32, uint64, pointeurs) :
+   atomic.AddInt64(&counter, 1)    // increment thread-safe
+   atomic.LoadInt64(&counter)      // lecture thread-safe
+   atomic.StoreInt64(&counter, 0)  // ecriture thread-safe
+
+   Plus rapide qu'un mutex pour des valeurs scalaires simples.
+
+D) SYNC.WAITGROUP
+   Permet d'attendre la fin de N goroutines.
+   wg.Add(N)      // avant de lancer les goroutines
+   wg.Done()      // dans chaque goroutine (souvent avec defer)
+   wg.Wait()      // bloque jusqu'a ce que Done() soit appele N fois
+
+   PIEGE : wg.Add() doit etre appele AVANT go func(). Si c'est apres,
+   wg.Wait() peut retourner avant que les goroutines soient toutes lancees.
+
+CRITERES DE REUSSITE
+---------------------
+  [OBLIGATOIRE] go run -race ne signale plus aucune data race.
+  [OBLIGATOIRE] Le resultat final est deterministe et correct.
+  [OBLIGATOIRE] Les goroutines se terminent avant le return de main().
+  [BONUS] Utiliser atomic pour updateCount (pas de mutex).
+  [BONUS] Expliquer pourquoi RWMutex est preferable ici a Mutex.
+
+================================================================================

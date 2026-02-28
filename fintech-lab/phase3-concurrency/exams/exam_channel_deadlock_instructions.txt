@@ -1,0 +1,104 @@
+================================================================================
+  EXAMEN PHASE 3-C — "Le Deadlock du Pipeline"
+  Niveau    : Avance
+  Concepts  : Channels (buffered/unbuffered), select, deadlock, pipeline pattern
+  Duree     : 60 a 90 minutes
+================================================================================
+
+CONTEXTE METIER
+---------------
+L'equipe a construit un pipeline de traitement d'ordres en 3 etapes :
+  Validation -> Enrichissement -> Execution
+
+En test de charge avec 1000 ordres, le programme se bloque.
+Diagnostic : "fatal error: all goroutines are asleep - deadlock!"
+
+C'est le pire message qu'un dev Go peut voir en production.
+En HFT, un deadlock = perte de marche = millions de dollars.
+
+BUG #1 : Envoi sur un channel plein sans case de debordement
+  Un channel buffe de capacite 1 qui recoit 1000 messages => bloque
+  des que le buffer est plein et que personne ne lit assez vite.
+
+BUG #2 : Select sans default ni timeout
+  Un select qui attend sur des channels vides bloque le goroutine
+  indefiniment s'il n'y a pas de case default ou de timeout.
+
+BUG #3 : Double close d'un channel
+  Fermer un channel deja ferme provoque une PANIC en Go.
+  (contrairement a close(nil) qui panique aussi)
+
+BUG #4 : Receive depuis un nil channel
+  var ch chan int
+  <-ch // bloque POUR TOUJOURS — un nil channel bloque toujours
+
+COMMANDES
+----------
+  go run phase3-concurrency/exams/exam_channel_deadlock.go
+
+  Le programme devrait deadlocker rapidement. Observer l'erreur Go :
+  "fatal error: all goroutines are asleep - deadlock!"
+
+CONCEPTS CLE
+------------
+
+A) BUFFERED vs UNBUFFERED CHANNELS
+   make(chan T)    // unbuffered : l'envoi bloque jusqu'a reception
+   make(chan T, N) // buffered   : l'envoi bloque seulement si buffer plein
+
+   Analogie : boite aux lettres.
+   Unbuffered = facteur doit attendre que tu ouvres la porte.
+   Buffered    = boite aux lettres de capacite N. Le facteur depose et part.
+
+B) SELECT AVEC TIMEOUT
+   select {
+   case msg := <-ch:
+       process(msg)
+   case <-time.After(5 * time.Second):
+       log.Println("timeout — aucun message recu")
+       return
+   }
+
+C) SELECT AVEC DEFAULT (non-bloquant)
+   select {
+   case msg := <-ch:
+       process(msg)
+   default:
+       // Pas de message disponible maintenant, continuer
+   }
+
+D) PATTERN PIPELINE EN GO
+   L'idiome Go pour les pipelines est :
+   - Chaque etape est une fonction qui retourne un <-chan T
+   - La fonction lance une goroutine interne
+   - La goroutine ecrit dans un out channel et le ferme quand elle a fini
+   - Le channel ferme signale la fin du pipeline a l'etape suivante
+
+   func stage(in <-chan int) <-chan int {
+       out := make(chan int, 100) // buffer pour eviter le blocage
+       go func() {
+           defer close(out) // TOUJOURS fermer quand la goroutine finit
+           for v := range in {
+               out <- transform(v)
+           }
+       }()
+       return out
+   }
+
+E) EVITER LE DEADLOCK : REGLES
+   1. Toujours definir un timeout sur les operations de channel.
+   2. Dimensionner les buffers selon le debit attendu.
+   3. Toujours fermer les channels du cote emetteur.
+   4. Ne jamais fermer deux fois un channel.
+   5. Utiliser context pour l'annulation globale.
+
+CRITERES DE REUSSITE
+---------------------
+  [OBLIGATOIRE] Le programme se termine sans deadlock ni panic.
+  [OBLIGATOIRE] Tous les ordres sont traites et le compte est correct.
+  [OBLIGATOIRE] Les 4 bugs sont identifies, expliques et corriges.
+  [BONUS] Refactorer le pipeline en utilisant le pattern idiomatique Go
+          (chaque etape retourne un <-chan).
+  [BONUS] Ajouter un timeout global avec context.WithTimeout.
+
+================================================================================

@@ -1,0 +1,200 @@
+================================================================================
+  FINTECH LAB — GUIDE DE DEMARRAGE
+  Pour quelqu'un qui ne connait PAS Go
+================================================================================
+
+COMMENT UTILISER CE LABORATOIRE
+---------------------------------
+1. Lis une lecon (fichier lesson_XX.go)
+2. Execute-la :  go run chemin/vers/lesson.go
+3. Relis le code avec les sorties sous les yeux
+4. Passe a la lecon suivante
+5. Apres chaque groupe de lecons -> fais l'examen correspondant
+6. Soumet ton examen dans la conversation -> code review
+
+CHAQUE LECON EST UN PROGRAMME COMPLET.
+Tu peux l'executer, modifier, experimenter.
+
+
+================================================================================
+  PHASE 1 — BOOTCAMP Go (Zero a 1)
+================================================================================
+
+LECON 01 : Variables et Types
+  Fichier  : phase1-bootcamp/lessons/lesson01_variables_types.go
+  Executer : go run phase1-bootcamp/lessons/lesson01_variables_types.go
+  Concepts : var, :=, int/float64/string/bool, constantes, conversions
+
+LECON 02 : Fonctions et Gestion d'Erreurs
+  Fichier  : phase1-bootcamp/lessons/lesson02_functions_errors.go
+  Executer : go run phase1-bootcamp/lessons/lesson02_functions_errors.go
+  Concepts : func, retours multiples, error, errors.New, fmt.Errorf, defer
+
+LECON 03 : Structs et Methodes
+  Fichier  : phase1-bootcamp/lessons/lesson03_structs_methods.go
+  Executer : go run phase1-bootcamp/lessons/lesson03_structs_methods.go
+  Concepts : struct, constructeurs NewXxx, value/pointer receiver
+
+LECON 04 : Pointeurs  *** CRITIQUE pour les entretiens ***
+  Fichier  : phase1-bootcamp/lessons/lesson04_pointers.go
+  Executer : go run phase1-bootcamp/lessons/lesson04_pointers.go
+  Concepts : &, *, copie vs reference, nil pointer, piege reassignation
+
+LECON 05 : Interfaces
+  Fichier  : phase1-bootcamp/lessons/lesson05_interfaces.go
+  Executer : go run phase1-bootcamp/lessons/lesson05_interfaces.go
+  Concepts : interface{}, implementation implicite, type assertion, type switch
+
+LECON 06 : Slices et Maps
+  Fichier  : phase1-bootcamp/lessons/lesson06_slices_maps.go
+  Executer : go run phase1-bootcamp/lessons/lesson06_slices_maps.go
+  Concepts : make, append, range, slicing, map, nil map, iteration
+
+--- EXAMENS PHASE 1 ---
+
+EXAMEN 01 : Code casse (4 bugs a trouver)
+  Lire d'abord  : phase1-bootcamp/exams/exam01_instructions.txt
+  Fichier examen : phase1-bootcamp/exams/exam01_syntax.go
+  Prerequis     : Lecons 01-04
+  Concepts      : Validation, calcul P&L, pointeurs (BUG #4 est un pointeur !)
+
+EXAMEN 02 : Interfaces a implementer
+  Lire d'abord  : phase1-bootcamp/exams/exam02_instructions.txt
+  Fichier examen : phase1-bootcamp/exams/exam02_interfaces.go
+  Prerequis     : Lecon 05
+
+EXAMEN 03 : Slices et Maps
+  Lire d'abord  : phase1-bootcamp/exams/exam03_instructions.txt
+  Fichier examen : phase1-bootcamp/exams/exam03_slices_maps.go
+  Prerequis     : Lecon 06
+
+
+================================================================================
+  PHASE 2 — PROJET FIL ROUGE : GoMatchEngine
+================================================================================
+
+OBJECTIF : Lire et comprendre un vrai moteur de matching.
+           Les fichiers sont deja ecrits — tu dois les COMPRENDRE.
+
+Commencer par lire les specs :
+  phase2-order-engine/specs/architecture.txt
+  phase2-order-engine/specs/data_structures.txt
+
+Ensuite lire le code dans cet ordre :
+  1. phase2-order-engine/order.go
+  2. phase2-order-engine/trade.go
+  3. phase2-order-engine/orderbook.go
+  4. phase2-order-engine/gateway.go
+  5. phase2-order-engine/main.go
+
+Executer le moteur :
+  go run ./phase2-order-engine/
+
+Lancer les tests :
+  go test ./phase2-order-engine/ -v
+
+
+================================================================================
+  PHASE 3 — CONCURRENCE (Goroutines, Channels, Mutex)
+================================================================================
+
+LECON 07 : Goroutines
+  Fichier  : phase3-concurrency/lessons/lesson01_goroutines.go
+  Executer : go run phase3-concurrency/lessons/lesson01_goroutines.go
+  Concepts : go func(), sync.WaitGroup, piege capture de variable, data race
+
+LECON 08 : Channels
+  Fichier  : phase3-concurrency/lessons/lesson02_channels.go
+  Executer : go run phase3-concurrency/lessons/lesson02_channels.go
+  Concepts : make(chan T), buffere/non-buffere, close, for range, select, pipeline
+
+LECON 09 : Mutex et Synchronisation
+  Fichier  : phase3-concurrency/lessons/lesson03_mutex.go
+  Executer : go run phase3-concurrency/lessons/lesson03_mutex.go
+  Concepts : sync.Mutex, sync.RWMutex, sync/atomic, sync.Once
+
+--- EXAMENS PHASE 3 ---
+
+EXAMEN : Data Race
+  Lire  : phase3-concurrency/exams/exam_data_race_instructions.txt
+  Exec  : go run -race phase3-concurrency/exams/exam_data_race.go
+
+EXAMEN : Goroutine Leak
+  Lire  : phase3-concurrency/exams/exam_goroutine_leak_instructions.txt
+
+EXAMEN : Channel Deadlock
+  Lire  : phase3-concurrency/exams/exam_channel_deadlock_instructions.txt
+
+EXAMEN : Mutex Avance
+  Lire  : phase3-concurrency/exams/exam_mutex_advanced_instructions.txt
+
+
+================================================================================
+  PHASE 4 — PERFORMANCES (GC, sync.Pool, Escape Analysis)
+================================================================================
+
+LECON 10 : Memoire et Escape Analysis
+  Fichier  : phase4-advanced/lessons/lesson01_memory_escape.go
+  Executer : go run phase4-advanced/lessons/lesson01_memory_escape.go
+  Verifier : go build -gcflags="-m" phase4-advanced/lessons/lesson01_memory_escape.go
+  Concepts : stack vs heap, escape analysis, interface boxing, pre-allocation
+
+LECON 11 : sync.Pool
+  Fichier  : phase4-advanced/lessons/lesson02_sync_pool.go
+  Executer : go run phase4-advanced/lessons/lesson02_sync_pool.go
+  Concepts : pool.Get(), pool.Put(), pool typee, buffer reuse
+
+--- EXAMENS PHASE 4 ---
+
+EXAMEN : Escape Analysis
+  Lire  : phase4-advanced/exams/exam_escape_analysis_instructions.txt
+
+EXAMEN : sync.Pool
+  Lire  : phase4-advanced/exams/exam_sync_pool_instructions.txt
+
+Lire aussi : phase4-advanced/notes_gc.txt
+             phase4-advanced/interview_questions.txt
+
+
+================================================================================
+  COMMANDES GO ESSENTIELLES
+================================================================================
+
+go run fichier.go           <- executer un fichier
+go run ./dossier/           <- executer un package
+go build ./...              <- compiler tout
+go test ./... -v            <- tests avec details
+go run -race ./...          <- detecter les data races
+go build -gcflags="-m" ...  <- voir l'escape analysis
+go vet ./...                <- analyser les bugs statiques
+go fmt ./...                <- formater le code
+
+
+================================================================================
+  AIDE-MEMOIRE SYNTAXE GO (pour ne pas oublier)
+================================================================================
+
+Variables :     x := 5          var x int = 5
+Fonctions :     func nom(a int, b int) (int, error) { ... }
+Structs :       type Nom struct { Champ Type }
+Methodes :      func (s *Struct) Methode() { ... }
+Interfaces :    type I interface { Methode() Type }
+Slices :        make([]T, 0, cap)    append(s, elem)
+Maps :          make(map[K]V)        val, ok := m[key]
+Goroutines :    go func() { ... }()
+Channels :      make(chan T, buf)     ch <- val    val := <-ch
+Mutex :         mu.Lock() / defer mu.Unlock()
+Erreurs :       if err != nil { return fmt.Errorf("ctx: %w", err) }
+
+
+================================================================================
+  PARCOURS D'APPRENTISSAGE RECOMMANDE
+================================================================================
+
+SEMAINE 1 :  Lecons 01 -> 04, puis Examen 01
+SEMAINE 2 :  Lecons 05 -> 06, puis Examens 02 et 03
+SEMAINE 3 :  Lire et comprendre Phase 2 (Order Engine)
+SEMAINE 4 :  Lecons 07 -> 09, puis Examens Phase 3
+SEMAINE 5 :  Lecons 10 -> 11, puis Examens Phase 4 + Interview Questions
+
+================================================================================

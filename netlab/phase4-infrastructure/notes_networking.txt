@@ -1,0 +1,243 @@
+NOTES NETWORKING — Aide-memoire Go Network Programming
+=======================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PORTS COURANTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ 20/21  FTP (data/control)
+ 22     SSH
+ 23     Telnet (NEVER in prod)
+ 25     SMTP
+ 53     DNS (UDP + TCP)
+ 67/68  DHCP (server/client)
+ 80     HTTP
+ 110    POP3
+ 143    IMAP
+ 179    BGP
+ 443    HTTPS
+ 465    SMTPS
+ 514    Syslog (UDP)
+ 587    SMTP submission
+ 636    LDAPS
+ 989/990 FTPS
+ 993    IMAPS
+ 995    POP3S
+ 1194   OpenVPN (UDP)
+ 3306   MySQL
+ 5432   PostgreSQL
+ 5900   VNC
+ 6379   Redis
+ 8080   HTTP alternate
+ 8443   HTTPS alternate
+ 9090   Prometheus
+ 9200   Elasticsearch
+ 27017  MongoDB
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CIDR CHEAT SHEET
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/32  =    1 host  (single host)
+/31  =    2 hosts (point-to-point, RFC 3021)
+/30  =    2 usable hosts
+/29  =    6 usable hosts
+/28  =   14 usable hosts
+/27  =   30 usable hosts
+/26  =   62 usable hosts
+/25  =  126 usable hosts
+/24  =  254 usable hosts    (class C)
+/23  =  510 usable hosts
+/22  = 1022 usable hosts
+/16  = 65534 usable hosts   (class B)
+/8   = 16M usable hosts     (class A)
+
+Private ranges (RFC 1918):
+  10.0.0.0/8         class A private
+  172.16.0.0/12      class B private (172.16.0.0 - 172.31.255.255)
+  192.168.0.0/16     class C private
+
+Loopback : 127.0.0.0/8
+Link-local: 169.254.0.0/16 (APIPA)
+Multicast : 224.0.0.0/4
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+GO NET PACKAGE — REFERENCE RAPIDE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TCP Server:
+  ln, _ := net.Listen("tcp", ":8080")
+  conn, _ := ln.Accept()
+  go handle(conn)
+
+TCP Client:
+  conn, _ := net.DialTimeout("tcp", "host:port", 5*time.Second)
+  defer conn.Close()
+
+UDP Server:
+  pc, _ := net.ListenPacket("udp", ":9514")
+  buf := make([]byte, 2048)
+  n, addr, _ := pc.ReadFrom(buf)
+  pc.WriteTo(response, addr)
+
+UDP Client:
+  conn, _ := net.Dial("udp", "host:port")
+  conn.Write(data)
+
+DNS:
+  addrs, _ := net.LookupHost("example.com")
+  names, _ := net.LookupAddr("1.1.1.1")
+  mxs,   _ := net.LookupMX("gmail.com")
+
+CIDR:
+  _, net_, _ := net.ParseCIDR("10.0.0.0/24")
+  net_.Contains(net.ParseIP("10.0.0.5")) // true
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+HTTP CLIENT — BONNES PRATIQUES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// TOUJOURS faire ca:
+client := &http.Client{
+    Timeout: 30 * time.Second,
+    Transport: &http.Transport{
+        MaxIdleConnsPerHost: 20,       // default 2 est trop bas
+        IdleConnTimeout:     90*time.Second,
+        DisableCompression:  false,
+    },
+}
+
+// Context par requete:
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel() // TOUJOURS defer cancel()
+req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+
+// Toujours lire ET fermer le body:
+defer resp.Body.Close()
+body, _ := io.ReadAll(resp.Body)
+
+// JAMAIS: http.Get(), http.Post(), http.DefaultClient
+//   → pas de timeout = goroutine leak potentiel
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+HTTP SERVER — BONNES PRATIQUES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// TOUJOURS configurer les timeouts:
+srv := &http.Server{
+    Addr:         ":8080",
+    Handler:      handler,
+    ReadTimeout:  5  * time.Second,
+    WriteTimeout: 10 * time.Second,
+    IdleTimeout:  120 * time.Second,
+}
+
+// Ordre dans un handler:
+//   1. w.Header().Set(...)   <- AVANT WriteHeader ou Write
+//   2. w.WriteHeader(status) <- UNE SEULE FOIS
+//   3. w.Write(body)         <- apres WriteHeader
+
+// JAMAIS: http.ListenAndServe sans timeouts
+//   → une requete lente bloque indefiniment
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TLS — BONNES PRATIQUES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+tls.Config{
+    MinVersion:   tls.VersionTLS12,    // jamais TLS 1.0/1.1
+    // Ou encore mieux:
+    MinVersion:   tls.VersionTLS13,
+}
+
+// Self-signed en prod: custom CertPool
+pool := x509.NewCertPool()
+pool.AddCert(serverCert)
+tls.Config{RootCAs: pool, ServerName: "myservice"}
+
+// InsecureSkipVerify = JAMAIS en prod (MITM)
+// Exception: outils de debug, environnements isolés contrôlés
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CONCURRENCE RESEAU — PATTERNS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// Semaphore (limit goroutines):
+sem := make(chan struct{}, 200)
+sem <- struct{}{}        // acquire
+defer func(){ <-sem }() // release
+
+// Worker pool (N goroutines, M tasks):
+tasks := make(chan Task, len(allTasks))
+// fill tasks, close(tasks)
+for i := 0; i < N; i++ {
+    go func() {
+        for t := range tasks { process(t) }
+    }()
+}
+
+// Channel fan-in (goroutines → results):
+results := make(chan Result, cap)
+// goroutines: results <- compute()
+// IMPORTANT: close APRES wg.Wait()
+go func() { wg.Wait(); close(results) }()
+for r := range results { collect(r) }
+
+// Stop channel (stopper une goroutine):
+stopCh := make(chan struct{})
+go func() {
+    ticker := time.NewTicker(interval)
+    defer ticker.Stop()
+    for {
+        select {
+        case <-ticker.C: doWork()
+        case <-stopCh: return
+        }
+    }
+}()
+// Pour stopper: close(stopCh)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DEBUGGING RESEAU — COMMANDES LINUX
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Ports en ecoute
+ss -tlnp
+
+# Connexions actives
+ss -tnp
+
+# Capturer le trafic HTTP
+sudo tcpdump -i eth0 -A 'port 80'
+
+# Capturer et decoder TLS (si tu as la cle)
+ssldump -i eth0 -k server.key
+
+# Test de connectivite TCP (sans telnet)
+nc -zv host 443
+
+# Test latence DNS
+dig +stats example.com
+
+# Trace route (moderne)
+mtr --report example.com
+
+# Voir les tables de routage
+ip route show
+ip rule show
+
+# Interface stats
+ip -s link show eth0
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ERREURS GO RESEAU COURANTES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"connection refused"      → rien n'ecoute sur ce port
+"connection reset by peer"→ connexion fermee brutalement (firewall, crash)
+"i/o timeout"             → deadline depassee (net.Conn.SetDeadline)
+"context deadline exceeded"→ context.WithTimeout expire
+"too many open files"     → epuisement de file descriptors (ulimit -n)
+"address already in use"  → port deja utilise (SO_REUSEADDR manquant)
+"no route to host"        → pas de route vers la destination
+"EOF"                     → connexion fermee proprement par le peer

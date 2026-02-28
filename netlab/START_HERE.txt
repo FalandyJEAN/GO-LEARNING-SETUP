@@ -1,0 +1,95 @@
+========================================
+  NETLAB — Go Network/Infra/Automation
+========================================
+
+Bienvenue dans le netlab !
+Ce lab te prepare aux entretiens pour :
+  - Network Developer       (Cloudflare, Fastly, Arista)
+  - Infrastructure Engineer (HashiCorp, AWS, GCP)
+  - Network Automation Eng. (Cisco DevNet, Juniper)
+  - SRE / Platform Engineer (Google, Meta, Netflix)
+
+PREREQUIS : avoir complete fintech-lab Phase 1 (syntaxe Go de base).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SETUP (une seule fois)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Depuis ce repertoire (netlab/) :
+
+    go mod tidy
+
+Cela telecharge golang.org/x/crypto (utilise uniquement par lesson08 et exam03).
+Toutes les autres lecons utilisent la stdlib pure.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+COMMENT EXECUTER LES LECONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Chaque lecon est un programme Go autonome (package main).
+Lance-les depuis la racine netlab/ :
+
+    go run phase1-fundamentals/lessons/lesson01_tcp.go
+    go run phase1-fundamentals/lessons/lesson02_udp.go
+    go run phase2-protocols/lessons/lesson06_tls.go
+    ... etc.
+
+NOTES :
+  - lesson04 (HTTP server) et lesson11 (LB) tournent en continu.
+    Laisse-les tourner et teste avec curl dans un autre terminal.
+    Ctrl+C pour arreter.
+
+  - lesson08 et exam03 (SSH) necessitent un serveur SSH accessible.
+    Definis les variables d'env :
+        SSH_USER=admin SSH_PASS=secret go run phase3-automation/lessons/lesson08_ssh_client.go
+
+  - Pour detecter les races conditions dans les exams :
+        go run -race phase1-fundamentals/exams/exam01_port_scanner.go
+        go run -race phase4-infrastructure/exams/exam04_mini_lb.go
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ORDRE RECOMMANDE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PHASE 1 — Fundamentals
+  01. lesson01_tcp.go         TCP echo server + client, goroutine/conn
+  02. lesson02_udp.go         UDP datagrams, syslog sender
+  03. lesson03_http_client.go HTTP Client, context, timeout, retry
+  04. lesson04_http_server.go HTTP ServeMux, JSON, logging+auth middleware
+  05. lesson05_dns_ip.go      DNS lookup, CIDR math, net.Interfaces
+  *** EXAM 01 : exam01_port_scanner.go (4 bugs) ***
+
+PHASE 2 — Protocols
+  06. lesson06_tls.go              TLS 1.3, self-signed cert, InsecureSkipVerify
+  07. lesson07_binary_protocol.go  encoding/binary, custom frame [len|type|payload]
+  *** EXAM 02 : exam02_http_proxy.go (4 bugs) ***
+
+PHASE 3 — Automation
+  08. lesson08_ssh_client.go  x/crypto/ssh, session, exec, stream output
+  09. lesson09_scanner.go     Worker pool, semaphore, concurrent port scan
+  10. lesson10_inventory.go   Walk CIDR, concurrent probe, JSON inventory
+  *** EXAM 03 : exam03_ssh_automation.go (4 bugs) ***
+
+PHASE 4 — Infrastructure
+  11. lesson11_load_balancer.go  Round-robin atomic, ReverseProxy, health check
+  12. lesson12_rate_limiter.go   Token bucket, circuit breaker (closed/open/half-open)
+  13. lesson13_metrics.go        Counter/Gauge/Histogram, /healthz, /metrics
+  *** EXAM 04 : exam04_mini_lb.go (4 bugs) ***
+
+BONUS
+  - phase4-infrastructure/interview_questions.txt  (30 questions d'entretien)
+  - phase4-infrastructure/notes_networking.txt     (aide-memoire protocoles)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+METHODOLOGIE EXAMS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Lis exam0X_instructions.txt
+2. Lis le code de exam0X_*.go — repere les 4 bugs
+3. Corrige-les
+4. Valide avec go run (et go run -race pour les races)
+
+Les bugs compilent tous. Ils produisent des resultats incorrects,
+des panics, des goroutine leaks ou des race conditions.
+
+Bonne chance ! Tu peux le faire.

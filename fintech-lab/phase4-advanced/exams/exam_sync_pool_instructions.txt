@@ -1,0 +1,105 @@
+================================================================================
+  EXAMEN PHASE 4-A — "sync.Pool : Eliminer la Pression sur le GC"
+  Niveau    : Expert
+  Concepts  : sync.Pool, allocation heap, GC pressure, benchmarks
+  Duree     : 90 a 120 minutes
+================================================================================
+
+CONTEXTE METIER
+---------------
+Le systeme de parsing des market data recoit 500 000 messages par seconde
+depuis les exchanges (format FIX protocol). Pour chaque message, le systeme
+alloue un struct MarketDataMsg.
+
+En production, les pauses GC atteignent 2 ms toutes les 100 ms.
+En HFT, 2 ms de pause = perte de marche = perte garantie.
+
+L'objectif : eliminer les allocations dans le hot path pour reduire la
+pression sur le GC.
+
+BUG #1 : Allocation d'un nouveau struct a chaque message
+  NewMarketDataMsg() alloue toujours un nouveau *MarketDataMsg.
+  Avec 500K msgs/s, le GC doit collecter 500K objets/s.
+  Solution : sync.Pool pour recycler les objets.
+
+BUG #2 : Struct retourne au pool sans remise a zero
+  Si on remet un objet dans le pool sans nettoyer ses champs,
+  le prochain utilisateur voit des donnees d'un message precedent.
+  Risque metier : prix d'une autre action, quantite incorrecte.
+
+BUG #3 : Pool utilise comme stockage persistant
+  sync.Pool peut vider son contenu A N'IMPORTE QUEL GC run.
+  Stocker des donnees importantes dans un pool = perte de donnees aleatoire.
+  Ne jamais utiliser sync.Pool pour du stockage persistant.
+
+BUG #4 : Slice interne reallouee a chaque fois
+  Le buffer interne ([]byte pour le parsing) est realloue a chaque appel.
+  Solution : inclure le buffer dans le struct du pool et le reserver.
+
+COMMANDES
+----------
+  # Lancer avec garbage collector verbose
+  GODEBUG=gctrace=1 go run phase4-advanced/exams/exam_sync_pool.go
+
+  # Benchmark AVANT correction
+  go test ./phase4-advanced/exams/ -bench=BenchmarkParse -benchmem -count=5
+
+  # Benchmark APRES correction (objectif : 0 allocs/op dans le hot path)
+  go test ./phase4-advanced/exams/ -bench=BenchmarkParse -benchmem -count=5
+
+  # Profile memoire
+  go test ./phase4-advanced/exams/ -bench=BenchmarkParse -memprofile=mem.prof
+  go tool pprof mem.prof
+
+CONCEPTS CLE
+------------
+
+A) SYNC.POOL — API
+   var pool = sync.Pool{
+       New: func() interface{} {
+           return &MyStruct{} // Cree un nouvel objet si le pool est vide
+       },
+   }
+
+   // Obtenir un objet (du pool ou nouveau)
+   obj := pool.Get().(*MyStruct)
+
+   // Utiliser obj...
+
+   // OBLIGATOIRE : remettre a zero avant de rendre
+   obj.Reset()
+   pool.Put(obj)
+
+B) QUAND UTILISER SYNC.POOL ?
+   - Objets crees et detruits frequemment dans un hot path.
+   - Objets dont la creation est chere (allocation + initialisation).
+   - L'objet peut etre remis a zero proprement.
+
+   NE PAS utiliser sync.Pool pour :
+   - Connexions reseau ou DB (utiliser sync.Pool d'un autre type).
+   - Donnees qui doivent persister entre GC cycles.
+   - Objets tres petits (overhead du pool > benefit).
+
+C) MESURER LES ALLOCATIONS
+   go test -bench=. -benchmem
+   // Output : 1000000    1023 ns/op    128 B/op    3 allocs/op
+   //                                  ^^^^^^^^    ^^^^^^^^^^^^
+   //                                  octets/op   allocs/op
+
+   Objectif dans le hot path HFT : 0 allocs/op.
+
+D) INTERFACE{} vs GENERICS (Go 1.18+)
+   sync.Pool retourne interface{}.
+   Il faut un type assertion : pool.Get().(*MyStruct)
+   En Go 1.18+, on peut creer des pools generiques.
+
+CRITERES DE REUSSITE
+---------------------
+  [OBLIGATOIRE] Le code utilise sync.Pool correctement.
+  [OBLIGATOIRE] Les objets sont remis a zero avant Put().
+  [OBLIGATOIRE] Les benchmarks montrent une reduction significative des allocs.
+  [OBLIGATOIRE] Bug #3 est explique en commentaire (quand ne pas utiliser Pool).
+  [BONUS] 0 allocs/op dans le benchmark de parsing.
+  [BONUS] Comparer les pauses GC avec GODEBUG=gctrace=1 avant et apres.
+
+================================================================================

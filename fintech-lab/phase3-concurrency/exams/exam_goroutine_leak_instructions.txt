@@ -1,0 +1,111 @@
+================================================================================
+  EXAMEN PHASE 3-B — "La Fuite de Goroutines"
+  Niveau    : Avance
+  Concepts  : Goroutine leaks, context, WaitGroup, channel semantics
+  Duree     : 60 a 90 minutes
+================================================================================
+
+CONTEXTE METIER
+---------------
+L'equipe OPS remonte une alerte critique : le service de traitement d'ordres
+consomme de plus en plus de RAM et de CPU au fil du temps. Apres 2 heures
+de production, le process consomme 8 GB de RAM et est tue par l'OOM killer.
+
+L'analyse montre que runtime.NumGoroutine() augmente indefiniment.
+Apres 1 heure : 50 000 goroutines actives.
+Normal : 5 a 50 goroutines.
+
+C'est une "goroutine leak" : des goroutines sont creees mais ne se terminent jamais.
+
+BUG #1 : Worker goroutine sans mecanisme d'arret
+  La goroutine attend des ordres sur un channel. Si le channel est abandonne
+  (jamais ferme, jamais consomme), la goroutine reste bloquee POUR TOUJOURS.
+
+BUG #2 : Goroutine lancee dans une boucle sans nettoyage
+  A chaque appel de processOrders(), une nouvelle goroutine est creee.
+  Elles s'accumulent. Aucune n'a de chemin de sortie.
+
+BUG #3 : WaitGroup.Add() apres go func()
+  Race condition : wg.Wait() peut retourner AVANT que les goroutines soient
+  toutes lancees si wg.Add(1) est appele depuis l'interieur de la goroutine.
+
+BUG #4 : Channel jamais ferme
+  Une goroutine qui lit un channel avec "for msg := range ch" bloquera
+  indefiniment si le channel n'est jamais ferme. Meme si plus personne
+  n'ecrit dedans.
+
+COMMANDES
+----------
+  go run phase3-concurrency/exams/exam_goroutine_leak.go
+
+  Observer : le programme ne se termine jamais (goroutines bloquees).
+  Ctrl+C pour arreter.
+
+  Pour diagnostiquer en prod :
+  import _ "net/http/pprof"
+  http.ListenAndServe(":6060", nil)
+  // Puis : curl http://localhost:6060/debug/pprof/goroutine?debug=2
+
+CONCEPTS CLE
+------------
+
+A) COMMENT ARRETER UNE GOROUTINE
+   En Go, on ne peut pas tuer une goroutine de l'exterieur.
+   On lui "signale" qu'elle doit s'arreter. Deux patterns :
+
+   Pattern 1 : Done channel
+     done := make(chan struct{})
+     go func() {
+         for {
+             select {
+             case <-done:
+                 return // La goroutine se termine proprement
+             case msg := <-input:
+                 process(msg)
+             }
+         }
+     }()
+     close(done) // Signaler l'arret depuis l'exterieur
+
+   Pattern 2 : context.Context (recommande en prod)
+     ctx, cancel := context.WithCancel(context.Background())
+     defer cancel()
+     go func() {
+         for {
+             select {
+             case <-ctx.Done():
+                 return
+             case msg := <-input:
+                 process(msg)
+             }
+         }
+     }()
+
+B) FERMER UN CHANNEL
+   - Un channel ferme retourne la zero value immediatement (non-bloquant).
+   - "for msg := range ch" se termine quand ch est ferme.
+   - Fermer un channel deja ferme : PANIC.
+   - Ecrire dans un channel ferme : PANIC.
+   - Seul l'EMETTEUR doit fermer un channel. Jamais le recepteur.
+
+C) DETECTER LES GOROUTINE LEAKS
+   // Dans les tests :
+   before := runtime.NumGoroutine()
+   doSomething()
+   time.Sleep(100 * time.Millisecond) // laisser les goroutines finir
+   after := runtime.NumGoroutine()
+   if after > before {
+       t.Errorf("goroutine leak: %d goroutines leaked", after - before)
+   }
+
+   Librairie recommandee pour les tests : goleak (uber-go/goleak)
+
+CRITERES DE REUSSITE
+---------------------
+  [OBLIGATOIRE] Le programme se termine proprement sans Ctrl+C.
+  [OBLIGATOIRE] Apres correction, runtime.NumGoroutine() reste stable.
+  [OBLIGATOIRE] Les 4 bugs sont identifies et corriges.
+  [BONUS] Utiliser context.Context au lieu d'un done channel simple.
+  [BONUS] Ajouter un test qui verifie l'absence de goroutine leak.
+
+================================================================================

@@ -1,0 +1,64 @@
+EXAM 02 — HTTP Reverse Proxy
+=============================
+
+CONTEXTE
+--------
+Tu es ingenieur plateforme chez une fintech. L'equipe a besoin d'un reverse proxy
+HTTP pour router le trafic vers les microservices de trading. Un collegue a ecrit
+une premiere version. Le code compile et semble fonctionner sur les GET,
+mais les POST perdent le body et des erreurs HTTP etranges apparaissent.
+
+OBJECTIF
+--------
+Trouve et corrige les 4 bugs dans exam02_http_proxy.go.
+
+BUGS A TROUVER (indices)
+------------------------
+
+BUG #1 — Request body consomme avant d'etre transmis
+  Symptome  : Les requetes POST arrivent au backend avec un body vide.
+              Le proxy lit le body pour le logger, puis passe r.Body (deja vide)
+              a la requete upstream.
+  Indice    : Cherche la lecture de r.Body dans logAndProxy().
+  Fix       : Lis le body avec io.ReadAll, log-le, puis recree le body avec
+              io.NopCloser(bytes.NewReader(bodyBytes)) avant de construire la requete.
+
+BUG #2 — Hop-by-hop headers transmis au backend
+  Symptome  : Certains backends rejettent la requete avec 400 Bad Request.
+              Les headers "Connection" et "Transfer-Encoding" ne doivent PAS
+              etre transmis par un proxy (RFC 7230 Section 6.1).
+  Indice    : Cherche copyHeaders() — elle copie tous les headers sans filtre.
+  Fix       : Supprime les hop-by-hop headers avant de les copier.
+              Liste: Connection, Keep-Alive, Transfer-Encoding, Upgrade,
+                     Proxy-Authorization, TE, Trailers.
+
+BUG #3 — Erreur de http.NewRequest ignoree
+  Symptome  : Le programme peut paniquer sur outReq.Header si err != nil
+              (outReq serait nil).
+  Indice    : Cherche http.NewRequest dans buildUpstreamRequest().
+  Fix       : Verifie l'erreur retournee par http.NewRequest.
+
+BUG #4 — WriteHeader appele apres ecriture du body
+  Symptome  : Warning "http: superfluous response.WriteHeader call" dans les logs.
+              Le status code envoye au client est incorrect (toujours 200).
+  Indice    : Cherche l'ordre des appels w.WriteHeader et w.Write dans writeResponse().
+  Fix       : Appelle w.WriteHeader(statusCode) AVANT d'ecrire le body.
+              Une fois que tu appelles w.Write(), les headers sont automatiquement
+              flush avec status 200 — tu ne peux plus changer le status apres.
+
+VALIDATION
+----------
+  go run phase2-protocols/exams/exam02_http_proxy.go
+
+Tu dois voir :
+  - Les requetes GET retourner le body correct du backend
+  - Les requetes POST transmettre le body complet
+  - Aucun warning "superfluous WriteHeader"
+  - Status codes corrects (201 pour POST, 404 pour /notfound)
+
+CONCEPTS CLES
+-------------
+- io.ReadAll + io.NopCloser   : lire et "rembobiner" un ReadCloser
+- Hop-by-hop headers (RFC 7230): ne jamais les transmettre via un proxy
+- http.ResponseWriter ordre   : headers → WriteHeader → Write (body)
+- Error handling              : toujours verifier les erreurs, meme http.NewRequest

@@ -1,0 +1,242 @@
+INTERVIEW QUESTIONS — Network / Infrastructure Go Engineer
+===========================================================
+30 questions couvrant les themes attendus en entretien tier-1.
+Format: Question → Points cles attendus dans la reponse.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 1 — OSI Model & TCP/IP Fundamentals
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Q01. Explique le modele OSI et ou interviennent TCP, UDP, HTTP, TLS.
+     Points : L7=Application (HTTP/DNS/SSH), L4=Transport (TCP/UDP),
+     L3=Network (IP/BGP/OSPF), L2=DataLink (Ethernet/VLAN), L1=Physical.
+     TLS est entre L4 et L7 (session layer). Go net.Conn = L4, net/http = L7.
+
+Q02. Decris le TCP 3-way handshake et ce qui se passe si un SYN est perdu.
+     Points : SYN → SYN-ACK → ACK. Retransmission exponentielle (RTO).
+     Initial RTO ≈ 1s, double a chaque echec (jusqu'a 127s en Linux).
+     Implication Go: net.DialTimeout doit etre < RTO.
+
+Q03. Quelle est la difference entre TCP et UDP ? Quand choisir l'un ou l'autre ?
+     Points : TCP = reliable, ordered, congestion control, overhead 3-way.
+     UDP = fast, stateless, no guarantee. Choisir UDP pour : DNS (query/reply),
+     video streaming (loss tolerant), QUIC (handled at app layer), syslog,
+     time sync (NTP). Choisir TCP pour : commandes, fichiers, HTTP, SSH.
+
+Q04. Qu'est-ce que le TIME_WAIT et pourquoi est-il important ?
+     Points : Etat apres la fermeture active. Dure 2*MSL (60-120s).
+     But : eviter les "ghost packets" d'une session precedente.
+     Probleme : trop de TIME_WAIT = epuisement de ports. Solutions :
+     SO_REUSEADDR, keep-alive connections, ou reduire net.ipv4.tcp_fin_timeout.
+
+Q05. Comment fonctionne TCP keep-alive et pourquoi l'activer en Go ?
+     Points : Probes TCP envoyees apres idle period. Detecte les connexions mortes
+     (NAT timeout, crash sans FIN). Go: net.TCPConn.SetKeepAlive(true).
+     Important pour les connexions longues (databases, SSH tunnels).
+
+Q06. Qu'est-ce qu'un packet fragmenté et pourquoi est-ce important dans les protocoles binaires ?
+     Points : IP fragmentation quand payload > MTU (1500B Ethernet).
+     En TCP : retransmission L4 gere la fragmentation.
+     En UDP : fragments arrivent hors ordre ou se perdent.
+     Go: io.ReadFull garantit N bytes complets meme si TCP fragmente les writes.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 2 — HTTP / TLS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Q07. HTTP/1.1 vs HTTP/2 vs HTTP/3 : differences principales.
+     Points :
+     HTTP/1.1 : un request par connexion (pipelining rarement utilise), texte.
+     HTTP/2   : multiplexing (N streams par connexion), header compression (HPACK),
+                server push, binary. Toujours sur TLS en pratique.
+     HTTP/3   : QUIC (UDP-based), 0-RTT, pas de HOL blocking, integre TLS 1.3.
+     Go stdlib supporte HTTP/1.1 et HTTP/2. HTTP/3 : quic-go.
+
+Q08. Explique le TLS handshake TLS 1.3.
+     Points : 1-RTT (vs 2-RTT en TLS 1.2).
+     Client → Server: ClientHello (key share ECDH, ciphers).
+     Server → Client: ServerHello + Certificate + CertVerify + Finished.
+     Client → Server: Finished. Cles derivees via HKDF.
+     0-RTT pour les sessions resumees (session tickets).
+
+Q09. Qu'est-ce que mTLS et quand l'utilise-t-on ?
+     Points : Mutual TLS = les DEUX cotes s'authentifient avec un certificat.
+     Server verifie le cert client + client verifie cert server.
+     Use cases: service mesh (Istio), Zero Trust networking, B2B APIs.
+     Go: tls.Config{ClientAuth: tls.RequireAndVerifyClientCert}.
+
+Q10. Pourquoi InsecureSkipVerify est-il dangereux, et quelle est la solution correcte ?
+     Points : Desactive toute verification de cert = vulnerable MITM.
+     Solutions : (a) custom CertPool pour les certs auto-signes,
+     (b) ssh.FixedHostKey pour SSH, (c) Let's Encrypt pour les services publics,
+     (d) cert-manager/Vault pour les environnements internes.
+
+Q11. Qu'est-ce que HSTS et pourquoi est-il important ?
+     Points : HTTP Strict Transport Security. Header qui dit au browser de
+     toujours utiliser HTTPS pendant N secondes. Empeche le downgrade attack.
+     Go: w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 3 — Routing & Network Architecture
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Q12. Explique BGP et pourquoi il est appele "le protocole qui fait fonctionner Internet".
+     Points : Border Gateway Protocol = protocole de routing entre AS (Autonomous Systems).
+     Path vector protocol (communique le chemin complet, pas juste la metrique).
+     Attributs : AS_PATH, LOCAL_PREF, MED, COMMUNITY.
+     iBGP (intra-AS) vs eBGP (inter-AS).
+     Cloudflare, AWS, etc. annoncent leurs prefixes IP via BGP.
+
+Q13. Difference entre BGP et OSPF.
+     Points : OSPF = IGP (interior), link-state, converge en secondes, LSDB,
+     Dijkstra SPF. Utilise dans les DC pour routing interne.
+     BGP = EGP (exterior), path vector, converge en minutes, policy-based.
+     En pratique: OSPF au sein d'un DC, BGP entre DC / vers Internet.
+
+Q14. Qu'est-ce qu'un VLAN et comment ca marche au niveau Ethernet ?
+     Points : Virtual LAN. Tag 802.1Q (4 bytes) insere dans la trame Ethernet.
+     12-bit VLAN ID = 4094 VLANs max. Isole le trafic broadcast.
+     Trunk port (multiple VLANs) vs Access port (un seul VLAN).
+     Utile pour : segmentation reseau, multi-tenant, isolation securite.
+
+Q15. Explique NAT (Network Address Translation) et ses limitations.
+     Points : Traduit IP:port privees ↔ IP:port publiques.
+     Types: SNAT (source), DNAT (destination), masquerade.
+     Limitations: brise le modele end-to-end IP, complique P2P, UDP hole punching,
+     stateful = single point of failure.
+     IPv6 elimine le besoin de NAT.
+
+Q16. Qu'est-ce que l'anycast et comment Cloudflare l'utilise ?
+     Points : Meme adresse IP annoncee depuis plusieurs PoPs via BGP.
+     Le routing BGP dirige le client vers le PoP le plus proche (AS path length).
+     Cloudflare : 1.1.1.1 est anycast sur 200+ PoPs.
+     Resilience: si un PoP tombe, BGP re-route vers le suivant.
+
+Q17. Qu'est-ce que le DNS et comment fonctionne la resolution recursive ?
+     Points : Recursive resolver → Root NS → TLD NS → Authoritative NS.
+     Caching a chaque etape (TTL). Types : A, AAAA, CNAME, MX, TXT, NS, PTR.
+     DNSSEC : signe les enregistrements. DoH / DoT : DNS over HTTPS/TLS.
+     Go: net.LookupHost, net.LookupMX, etc. utilisent le resolver du systeme.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 4 — Load Balancing & Proxies
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Q18. Difference entre reverse proxy et load balancer.
+     Points : Reverse proxy = intermediaire qui cache la topologie backend.
+     Features: SSL termination, caching, compression, rewriting.
+     Load balancer = distribue le trafic sur N backends (peut etre L4 ou L7).
+     En pratique : Nginx, Envoy, HAProxy font les deux.
+
+Q19. L4 vs L7 Load Balancing : difference et trade-offs.
+     Points :
+     L4 (transport): TCP/UDP connections forwarded as-is. Plus rapide, moins intelligent.
+     Incapable de router sur URL/headers. Ex: AWS NLB.
+     L7 (application): Inspecte HTTP headers, path, cookies. Peut faire A/B testing,
+     sticky sessions, path-based routing. Plus de latence. Ex: AWS ALB, Nginx.
+
+Q20. Quels algorithmes de load balancing connais-tu ? Quand utiliser chacun ?
+     Points :
+     Round-robin : simple, equitable pour des backends homogenes.
+     Weighted RR : backends avec capacites differentes.
+     Least connections : trafic long-lived (WebSockets, DB connections).
+     IP hash : sticky sessions sans cookie (meme client → meme backend).
+     Random with 2 choices (Power of 2): O(1), meilleur que round-robin en pratique.
+     Consistent hashing : distribution avec minimal churn quand backends changent.
+
+Q21. Qu'est-ce que les hop-by-hop headers HTTP et pourquoi un proxy doit les supprimer ?
+     Points : Headers qui s'appliquent a la connexion courante, pas end-to-end.
+     RFC 7230: Connection, Keep-Alive, Transfer-Encoding, Upgrade, Proxy-Auth, TE, Trailers.
+     Un proxy doit les supprimer avant de forwarder : sinon le backend peut rejeter
+     la requete ou se comporter incorrectement (ex: Content-Length vs chunked).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 5 — Rate Limiting & Resilience
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Q22. Token bucket vs Leaky bucket : difference et use cases.
+     Points :
+     Token bucket : autorise les bursts jusqu'a la capacite du bucket.
+     Requetes rejetees si tokens = 0. Utilise par : AWS API GW, Nginx limit_req.
+     Leaky bucket : output a taux constant, queue les requetes en avance.
+     Plus strict sur le taux de sortie. Utile pour : envoi de paquets reseau.
+     En pratique : token bucket est plus common pour les APIs.
+
+Q23. Explique le circuit breaker pattern (3 etats).
+     Points : CLOSED (normal) → OPEN (fail fast, pas d'appels) → HALF-OPEN (sonde).
+     Threshold : N failures en M secondes → OPEN.
+     Timeout : apres X secondes en OPEN → HALF-OPEN (laisse passer 1 requete).
+     Recovery : K successes en HALF-OPEN → CLOSED.
+     Benefice : evite les cascades de failures en systemes distribues.
+
+Q24. Qu'est-ce que le backpressure et comment le Go channel y contribue ?
+     Points : Mecanisme pour signaler au producteur de ralentir quand le
+     consommateur est sature. Go: buffered channel plein = producteur bloque
+     (ou select + default pour drop). Alternative : semaphore pattern.
+     Critique pour les systemes haute frequence (order gateways, streaming).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 6 — Linux & Container Networking
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Q25. Explique les Linux network namespaces et leur role dans Docker/Kubernetes.
+     Points : Namespace = vue isolee de la stack reseau (interfaces, routes, firewall).
+     Chaque container/pod a son propre netns.
+     veth pair : cable virtuel entre netns.
+     Docker: veth → docker0 bridge. K8s: veth → CNI plugin (Calico, Cilium, Flannel).
+
+Q26. Kubernetes networking : comment un pod communique avec un autre pod sur un autre node ?
+     Points : CNI plugin gere le routing inter-node.
+     Calico : BGP entre nodes, chaque node annonce son CIDR pod.
+     Flannel : VXLAN overlay (encapsulation UDP).
+     Cilium : eBPF programs bypas iptables, plus performant.
+     Service : ClusterIP = kube-proxy cree iptables rules / IPVS pour LB interne.
+
+Q27. Qu'est-ce qu'eBPF et pourquoi ca revolutionne le networking Linux ?
+     Points : Extended Berkeley Packet Filter. Programmes sandboxes executes dans
+     le kernel Linux sans module kernel. Use cases: observabilite (tracing), securite
+     (Falco), networking (Cilium, XDP). XDP (eXpress Data Path) = traitement de
+     paquets avant le stack networking = <1us latency, potentiellement line-rate.
+     Go: cilium/ebpf library.
+
+Q28. netstat vs ss : quelle difference et lequel utiliser ?
+     Points : netstat = legacy (lit /proc/net), lent sur les gros serveurs.
+     ss = modern (utilise netlink socket), beaucoup plus rapide, plus de details.
+     Commandes utiles:
+       ss -tlnp  : TCP listening ports avec process
+       ss -s     : statistiques
+       ss -i     : TCP internals (RTT, cwnd, etc.)
+     Go equivalent : net.Interfaces(), custom /proc/net/tcp parsing pour outils avances.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 7 — Go-Specific Network Programming
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Q29. Goroutine per connection vs worker pool : quand choisir quoi ?
+     Points :
+     Goroutine/conn : idiomatique Go, simple, correct pour la plupart des cas.
+     Goroutines sont legeres (2-8KB stack initial). 100k goroutines = OK sur 1GB RAM.
+     Worker pool : prefere quand les connexions font des operations lourdes (DB queries,
+     calculs CPU-bound) ou quand il faut limiter la concurrence explicitement.
+     En reseau HF : worker pool avec channel bounded = backpressure naturelle.
+
+Q30. Comment fonctionne le connection pooling dans net/http et quand le tuner ?
+     Points : http.Transport gere un pool de connexions persistantes (keep-alive).
+     Parametres cles :
+       MaxIdleConns        : total idle connections (default 100)
+       MaxIdleConnsPerHost : par host (default 2 — souvent trop bas !)
+       MaxConnsPerHost     : limite totale par host
+       IdleConnTimeout     : combien de temps garder une conn idle
+     Symptome d'un pool mal configure : "connection reset by peer" sous charge,
+     latence elevee au p99 (overhead du new TCP handshake).
+     Regle: MaxIdleConnsPerHost = expected QPS * avg_latency_sec * safety_factor.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+BONUS — Questions rapides (30 secondes chacune)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+B01. Quelle est la difference entre io.Copy et io.ReadAll ? (ReadAll charge tout en memoire)
+B02. Pourquoi ne pas utiliser http.DefaultClient ? (pas de timeout → goroutine leak possible)
+B03. Comment detecter une goroutine leak en Go ? (runtime.NumGoroutine(), pprof /debug/pprof/goroutine)
+B04. Qu'est-ce que context.WithCancel vs WithTimeout ? (Cancel = manuel, Timeout = automatique apres N)
+B05. Que fait defer resp.Body.Close() si resp est nil ? (panic : toujours checker err avant)

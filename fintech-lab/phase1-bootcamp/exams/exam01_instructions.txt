@@ -1,0 +1,71 @@
+================================================================================
+  EXAMEN 01 — "Le Premier Ordre qui Crashe"
+  Niveau    : Debutant (Phase 1)
+  Concepts  : Syntaxe, types, zero values, gestion d'erreurs, pointeurs
+  Duree     : 20 a 40 minutes
+================================================================================
+
+CONTEXTE METIER
+---------------
+Tu rejoins l'equipe en plein incident. Un developpeur junior a ecrit un module
+de validation d'ordres pour notre systeme de trading. Le code compile sans
+erreur, mais il se comporte de maniere incorrecte en production.
+
+Le responsable de la salle des marches a remonte 3 bugs :
+
+  BUG #1 : Un ordre "SELL" d'AAPL @ $0.00 a ete envoye au marche.
+  BUG #2 : Le systeme accepte des quantites negatives.
+  BUG #3 : La fonction de calcul du P&L retourne un resultat incorrect.
+
+Et une note du Staff Engineer (moi) :
+  NOTE #4 : Il y a un probleme de conception dans l'utilisation des pointeurs
+             qui ne causera pas de crash aujourd'hui, mais causera un bug subtil
+             en production quand on parallelisera le code. Trouve-le.
+
+FICHIER A CORRIGER
+------------------
+  phase1-bootcamp/exams/exam01_syntax.go
+
+INSTRUCTIONS
+------------
+1. Lis le fichier exam01_syntax.go en entier avant de toucher quoi que ce soit.
+2. Lance le code tel quel pour observer le comportement incorrect :
+     go run phase1-bootcamp/exams/exam01_syntax.go
+3. Identifie les 4 problemes (3 bugs + 1 probleme de conception).
+4. Corrige le code.
+5. Relance pour verifier que la sortie est correcte.
+6. Soumets ton code corrige avec des commentaires expliquant CHAQUE correction.
+
+FORMAT DE SOUMISSION ATTENDU
+-----------------------------
+Dans ta reponse, fournis :
+  a) Le code corrige complet (pas juste les diffs)
+  b) Pour chaque correction, une explication de 2-3 lignes :
+     - Quel etait le probleme ?
+     - Pourquoi c'est un probleme (impact metier / technique) ?
+     - Quelle est ta correction et pourquoi elle est juste ?
+
+CRITERES DE REUSSITE (Code Review)
+------------------------------------
+  [OBLIGATOIRE] Les 3 bugs sont corriges et la sortie est conforme.
+  [OBLIGATOIRE] Le probleme de pointeur est identifie et explique.
+  [BONUS]       Tu identifies un 5eme probleme que je n'ai pas mentionne.
+  [ELIMINATOIRE] Si tu utilises une correction qui "masque" le bug sans
+                 le resoudre (ex: hardcoder une valeur), c'est un echec.
+
+SORTIE ATTENDUE APRES CORRECTION
+---------------------------------
+  --- Validation des ordres ---
+  [OK]  ORD-001 : BUY  AAPL x100 @ $189.50
+  [ERR] ORD-002 : prix invalide (0.00)
+  [ERR] ORD-003 : quantite invalide (-50)
+  [OK]  ORD-004 : SELL MSFT x200 @ $415.20
+
+  --- Calcul P&L ---
+  Position LONG  AAPL : entree=189.50, sortie=192.00 => P&L = +$250.00
+  Position SHORT MSFT : entree=415.20, sortie=410.00 => P&L = +$520.00
+
+================================================================================
+  Bonne chance. La doc officielle de Go est ta seule ressource autorisee.
+  https://pkg.go.dev/
+================================================================================

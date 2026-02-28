@@ -1,0 +1,90 @@
+================================================================================
+  EXAMEN 02 — "L'Interface qui Ment"
+  Niveau    : Debutant-Intermediaire (Phase 1)
+  Concepts  : Interfaces, value vs pointer receivers, type assertions, nil trap
+  Duree     : 30 a 50 minutes
+  Prerequis : Examen 01 valide
+================================================================================
+
+CONTEXTE METIER
+---------------
+L'equipe a developpe un systeme de validation d'ordres base sur des interfaces.
+En code review, tu identifies 4 problemes. Aucun ne provoque d'erreur de
+compilation — ils se manifestent au runtime ou produisent des resultats
+silencieusement incorrects.
+
+Le chef de salle remonte :
+
+  BUG #1 : SetDefaults() est appelee mais les ordres n'ont pas leur quantite
+            par defaut appliquee. Ils arrivent au marche avec Quantity = 0.
+
+  BUG #2 : Le systeme panique en production quand un ordre de type "StopOrder"
+            est soumis. (runtime panic: interface conversion)
+
+  BUG #3 : Un ordre "vide" passe la validation et atteint le matching engine.
+            Le log montre que validateur != nil mais l'ordre est vide.
+
+  BUG #4 : La methode Fee() retourne toujours 0.00, meme pour des ordres
+            importants. Le calcul de commission est completement faux.
+
+FICHIER A CORRIGER
+------------------
+  phase1-bootcamp/exams/exam02_interfaces.go
+
+COMMANDE DE LANCEMENT
+---------------------
+  go run phase1-bootcamp/exams/exam02_interfaces.go
+
+INSTRUCTIONS
+------------
+1. Lis le fichier en entier.
+2. Lance le code pour observer les panics et valeurs incorrectes.
+3. Corrige les 4 bugs.
+4. Verifie que la sortie correspond a la sortie attendue ci-dessous.
+
+CONCEPTS CLE A MAITRISER
+--------------------------
+A) VALUE vs POINTER RECEIVER
+   - Value receiver   (o Order)  : travaille sur une COPIE. Modifications perdues.
+   - Pointer receiver (o *Order) : travaille sur l'ORIGINAL. Modifications conservees.
+   - Regle: si une methode doit modifier l'objet, utilise TOUJOURS *T.
+
+B) TYPE ASSERTION
+   - Sans securite : o := v.(Order)    → panique si v n'est pas Order
+   - Avec securite : o, ok := v.(Order) → ok==false si mauvais type, pas de panique
+
+C) LE NIL INTERFACE TRAP (concept avance, piege classique des entretiens)
+   En Go, une interface a deux composantes internes : (type, valeur).
+   Un (*Order)(nil) converti en interface Validator :
+     - La valeur de l'interface N'EST PAS nil (le type est non-nil !)
+     - Appeler une methode dessus → nil pointer dereference panic
+   C'est l'un des bugs les plus subtils de Go.
+
+D) METHOD SET ET INTERFACES
+   Si Pricer est une interface avec Price() float64 :
+   - type Order struct {...} avec func (o Order)  Price() float64 → *Order et Order satisfont
+   - type Order struct {...} avec func (o *Order) Price() float64 → SEULEMENT *Order satisfait
+
+SORTIE ATTENDUE APRES CORRECTION
+---------------------------------
+  --- Test SetDefaults ---
+  Avant : Quantity=0
+  Apres : Quantity=1
+
+  --- Test Type Assertion ---
+  LimitOrder valide : AAPL x100 @ $189.50 | fee=$37.90
+  StopOrder inconnu : type non supporte (skip)
+
+  --- Test Nil Trap ---
+  Validator correctement absent (nil detecte)
+
+  --- Validation Complete ---
+  [OK]  AAPL x100 @ $189.50 | Fee: $37.90
+  [OK]  MSFT x50  @ $415.20 | Fee: $41.52
+
+FORMAT DE SOUMISSION
+---------------------
+  - Code corrige complet
+  - Pour chaque bug : probleme, impact, correction + explication du concept Go
+
+================================================================================

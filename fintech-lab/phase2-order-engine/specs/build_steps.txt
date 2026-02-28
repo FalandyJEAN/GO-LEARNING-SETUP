@@ -1,0 +1,76 @@
+================================================================================
+  PHASE 2 — Guide pas-a-pas : Comprendre GoMatchEngine
+================================================================================
+
+COMMENT UTILISER CE PROJET
+----------------------------
+Ce projet est une implementation complete du matching engine.
+Tu n'as pas a le construire from scratch — tu dois le COMPRENDRE et etre
+capable d'en expliquer chaque composant en entretien.
+
+ETAPE 1 : Lancer la simulation
+---------------------------------
+  go run ./phase2-order-engine/
+
+Observe la sortie. Comprends chaque scenario.
+
+ETAPE 2 : Lancer les tests
+-----------------------------
+  go test ./phase2-order-engine/ -v
+
+  Tous les tests doivent passer. Comprends POURQUOI chaque test verifie
+  ce qu'il verifie. Les tests sont la specification du systeme.
+
+ETAPE 3 : Lancer les benchmarks
+---------------------------------
+  go test ./phase2-order-engine/ -bench=. -benchmem -count=3
+
+  Observe :
+  - ns/op : nanosecondes par operation
+  - B/op  : bytes alloues par operation
+  - allocs/op : nombre d'allocations memoire par operation
+
+  Objectif HFT : < 1000 ns/op pour un match simple. < 5 allocs/op.
+
+ETAPE 4 : Lire le code dans cet ordre
+----------------------------------------
+  1. order.go   — Comprendre les types. Pourquoi uint64 et pas string pour ID ?
+                  Pourquoi int64 pour Quantity ? Pourquoi pas time.Time ?
+  2. trade.go   — Comprendre le cycle de vie d'un trade.
+  3. orderbook.go — Le coeur. Lire la BidHeap et AskHeap en detail.
+                    Comprendre l'interface container/heap.
+  4. gateway.go — Comprendre la validation et le routing.
+  5. main.go    — Suivre les 5 scenarios un par un.
+
+ETAPE 5 : Questions a se poser (preparation entretien)
+---------------------------------------------------------
+  Q: Pourquoi RWMutex et pas Mutex sur l'OrderBook ?
+  Q: Qu'est-ce que la "lazy deletion" et pourquoi est-ce utile ?
+  Q: Quelle est la complexite de Submit() ? De Cancel() ?
+  Q: Pourquoi le prix d'execution est celui de l'ordre passif ?
+  Q: Qu'est-ce que le VWAP et comment se calcule-t-il ?
+  Q: Comment ameliorer Cancel() de O(n) a O(1) ?
+  Q: Que se passe-t-il si deux goroutines appellent Submit() en meme temps ?
+  Q: Pourquoi "old[n-1] = nil" dans Pop() des heaps ?
+
+ETAPE 6 : Ameliorations a implementer (exercice)
+--------------------------------------------------
+  [A] FACILE : Ajouter une methode GetOrder(id uint64) (*Order, bool)
+               avec un index map pour O(1) au lieu de O(n).
+
+  [B] MOYEN : Implémenter le type IOC completement dans le matching.
+
+  [C] DIFFICILE : Refactorer pour que Submit() envoie les trades via
+                  un channel plutot que de les retourner directement.
+                  (Pattern event-driven)
+
+  [D] EXPERT : Ajouter un circuit breaker qui rejette les ordres si le
+               prix s'ecarte de plus de X% du dernier trade.
+
+COMMANDES UTILES
+-----------------
+  go vet ./phase2-order-engine/          # Analyse statique
+  go test ./phase2-order-engine/ -race   # Detecteur de data races
+  go test ./phase2-order-engine/ -cover  # Couverture de code
+
+================================================================================

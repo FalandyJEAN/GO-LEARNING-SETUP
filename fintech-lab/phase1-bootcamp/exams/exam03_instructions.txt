@@ -1,0 +1,106 @@
+================================================================================
+  EXAMEN 03 — "Le Carnet d'Ordres Fantome"
+  Niveau    : Intermediaire (Phase 1 — Final)
+  Concepts  : Slices, maps, closures, range loop gotchas, nil maps
+  Duree     : 40 a 60 minutes
+  Prerequis : Examens 01 et 02 valides
+================================================================================
+
+CONTEXTE METIER
+---------------
+L'equipe data a developpe un agregateur de carnets d'ordres qui consolide
+les prix de plusieurs sources (Bloomberg, Reuters, exchanges directs).
+En charge en prod, le systeme se comporte de maniere imprevue.
+
+Le lead remonte 4 bugs :
+
+  BUG #1 : addOrder() est appelee correctement, mais le carnet d'ordres
+            reste vide apres l'appel. Les ordres disparaissent.
+
+  BUG #2 : buildSnapshot() retourne un snapshot ou tous les ordres pointent
+            vers le meme ordre (le dernier). Les 100 premiers sont perdus.
+
+  BUG #3 : updatePrices() panique en production : "assignment to entry in
+            nil map". Ca marche en test (1 goroutine) mais pas en prod.
+            (Note : ici, c'est une erreur d'initialisation, pas de concurrence.)
+
+  BUG #4 : filterByMinQty() semble filtrer, mais quand on imprime le
+            carnet ORIGINAL apres le filtre, les ordres ont ete modifies.
+            Un filtre ne doit pas modifier la source.
+
+FICHIER A CORRIGER
+------------------
+  phase1-bootcamp/exams/exam03_slices_maps.go
+
+COMMANDE
+--------
+  go run phase1-bootcamp/exams/exam03_slices_maps.go
+
+CONCEPTS CLE
+------------
+
+A) SLICES : APPEND ET PASSAGE PAR VALEUR
+   En Go, une slice est une structure {pointer, len, cap}.
+   Quand tu passes une slice a une fonction, tu passes une COPIE de ce header.
+   append() peut allouer un nouveau backing array => le pointeur dans la copie
+   change, mais l'original ne voit rien.
+
+   FAUX :
+     func addItem(s []int, x int) {
+         s = append(s, x) // modifie la copie locale uniquement
+     }
+   JUSTE :
+     func addItem(s []int, x int) []int {
+         return append(s, x) // retourner la nouvelle slice
+     }
+     // Ou passer un pointeur sur slice : func addItem(s *[]int, x int)
+
+B) RANGE LOOP ET CAPTURE DE VARIABLE (classic gotcha)
+   for _, o := range orders {
+       snapshot = append(snapshot, &o) // FAUX : &o pointe toujours vers
+   }                                   // la meme variable de boucle !
+
+   JUSTE : copier l'objet dans la boucle
+     for _, o := range orders {
+         copy := o
+         snapshot = append(snapshot, &copy)
+     }
+   Ou (Go 1.22+) : le comportement a change, chaque iteration cree une
+   nouvelle variable. Mais comprendre l'ancien comportement est OBLIGATOIRE
+   en entretien (la majorite des codebases sont en Go < 1.22).
+
+C) MAP NON INITIALISEE
+   var m map[string]float64   // m == nil
+   m["key"] = 1.0             // PANIC : assignment to entry in nil map
+
+   JUSTE :
+   m := make(map[string]float64)  // ou m := map[string]float64{}
+
+D) MODIFICATION IMPLICITE VIA SLICE DE POINTEURS
+   Quand tu filtres une slice en gardant des *T (pointeurs), et que tu
+   modifies ces pointeurs dans la nouvelle slice, tu modifies aussi
+   les originaux (meme backing object).
+   Solution : copier les valeurs, pas les pointeurs, ou etre explicite.
+
+SORTIE ATTENDUE APRES CORRECTION
+---------------------------------
+  --- Test addOrder ---
+  Carnet apres ajout : 3 ordres
+  AAPL BUY  x100 @ $189.50
+  AAPL SELL x200 @ $190.00
+  AAPL BUY  x50  @ $188.00
+
+  --- Test buildSnapshot ---
+  Snapshot : 3 ordres (chacun different)
+  Snapshot[0] : AAPL x100 @ $189.50
+  Snapshot[1] : AAPL x200 @ $190.00
+  Snapshot[2] : AAPL x50  @ $188.00
+
+  --- Test updatePrices ---
+  Prix mis a jour : AAPL=190.00 MSFT=416.00
+
+  --- Test filterByMinQty ---
+  Apres filtre (min 100) : 2 ordres
+  Carnet original intact  : 3 ordres
+
+================================================================================

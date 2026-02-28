@@ -1,0 +1,104 @@
+================================================================================
+  EXAMEN PHASE 3-D — "Les Pieges du Mutex"
+  Niveau    : Expert (dernier examen Phase 3)
+  Concepts  : sync.Mutex, sync.RWMutex, reentrance, deadlock, starvation
+  Duree     : 75 a 120 minutes
+================================================================================
+
+CONTEXTE METIER
+---------------
+Le composant OrderCache stocke les ordres actifs en memoire pour un acces
+ultra-rapide. Il est utilise par 3 types de goroutines :
+  - Readers : lisent les ordres pour le market data (tres frequents)
+  - Writers  : mettent a jour les ordres lors des executions
+  - Managers : font des operations composees (lire + modifier)
+
+Le systeme plante en production avec un deadlock intermittent.
+L'analyse du core dump montre que plusieurs goroutines sont bloquees
+sur sync.Mutex dans OrderCache.
+
+BUG #1 : RLock utilise pour une operation d'ECRITURE
+  UpdateOrder() utilise RLock (partage) mais ecrit dans la map.
+  Resultat : plusieurs goroutines ecrivent simultanement => data corruption.
+  (Note : RLock permet plusieurs lecteurs simultanement, mais si un
+  writer arrive, les autres writers ne sont PAS bloques entre eux !)
+
+BUG #2 : Mutex non-reentrant — Deadlock interne
+  Go's sync.Mutex n'est PAS reentrant.
+  Si une methode locke le mutex et en appelle une autre qui le locke aussi,
+  => DEADLOCK. La goroutine attend un lock qu'elle tient deja.
+
+BUG #3 : Lock manquant sur le chemin d'erreur (double unlock)
+  Dans GetOrCreate(), un Lock est acquis mais si on appelle une fonction
+  qui Unlock() en interne, le defer Unlock() final double-unlock => PANIC.
+
+BUG #4 : Starvation de writers avec RWMutex
+  Si des readers acquierent constamment RLock, un writer qui attend Lock
+  peut etre bloque indefiniment (writer starvation).
+  (Ce bug est conceptuel — a expliquer, pas forcement a corriger dans le code)
+
+COMMANDES
+----------
+  go run phase3-concurrency/exams/exam_mutex_advanced.go
+
+  Le deadlock peut ne pas apparaitre immediatement (comportement non-deterministe).
+  Lancer plusieurs fois ou avec : go run -race phase3-concurrency/exams/exam_mutex_advanced.go
+
+CONCEPTS AVANCES
+----------------
+
+A) SYNC.MUTEX N'EST PAS REENTRANT
+   En Go, sync.Mutex est deliberement non-reentrant.
+   Contrairement a Java (synchronized est reentrant), en Go :
+   mu.Lock()
+   mu.Lock() // DEADLOCK : attend un lock qu'on tient deja
+
+   Solution : refactorer pour que les methodes internes ne lockent pas,
+   et que seules les methodes publiques lockent.
+   Convention : methodes avec suffix "Locked" => supposent que le lock est deja tenu.
+
+   func (c *Cache) Get(key string) *Order {
+       c.mu.RLock()
+       defer c.mu.RUnlock()
+       return c.getLocked(key) // Appelle la version sans lock
+   }
+   func (c *Cache) getLocked(key string) *Order {
+       return c.data[key] // Pas de lock ici
+   }
+
+B) QUAND UTILISER RWMUTEX vs MUTEX ?
+   Utilise sync.RWMutex quand :
+   - Les lectures sont BEAUCOUP plus frequentes que les ecritures.
+   - Les sections critiques en lecture sont courtes.
+   - Le ratio lecture/ecriture est > 10:1.
+
+   Utilise sync.Mutex quand :
+   - Les ecritures sont frequentes.
+   - La logique est simple et tu veux eviter les erreurs de RLock/Lock.
+   - La section critique est tres courte (le mutex overhead est minimal).
+
+C) DEFER MU.UNLOCK() — PIEGES
+   // Cas 1 : Lock dans une boucle avec defer — MAUVAIS
+   for _, key := range keys {
+       mu.Lock()
+       defer mu.Unlock() // Defer s'execute a la FIN de la FONCTION, pas de l'iteration
+       // => Le lock reste tenu pendant toute la boucle, pas juste une iteration
+   }
+
+   // Cas 2 : Correct
+   for _, key := range keys {
+       mu.Lock()
+       // ... utiliser la ressource ...
+       mu.Unlock() // Explicit, pas defer
+   }
+
+CRITERES DE REUSSITE
+---------------------
+  [OBLIGATOIRE] Les bugs #1, #2, #3 sont corriges.
+  [OBLIGATOIRE] Le programme tourne sans deadlock ni panic.
+  [OBLIGATOIRE] Le race detector ne signale rien (go run -race).
+  [OBLIGATOIRE] Bug #4 est explique en commentaire dans le code.
+  [BONUS] Pattern "locked suffix" correctement implemente.
+  [BONUS] Benchmark comparant Mutex vs RWMutex sur ce use case.
+
+================================================================================

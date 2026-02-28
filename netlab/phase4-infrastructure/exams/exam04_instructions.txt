@@ -1,0 +1,62 @@
+EXAM 04 — Mini Load Balancer
+=============================
+
+CONTEXTE
+--------
+Tu es SRE senior dans une fintech. L'equipe a ecrit un mini load balancer
+pour les services internes. Le code compile mais crashe en production,
+fuit des goroutines, et le race detector hurle.
+
+OBJECTIF
+--------
+Trouve et corrige les 4 bugs dans exam04_mini_lb.go.
+
+BUGS A TROUVER (indices)
+------------------------
+
+BUG #1 — Counter round-robin non atomique → race condition
+  Symptome  : go run -race signale une race sur counter dans nextBackend().
+              En prod : valeurs corrompues, distribution desequilibree.
+  Indice    : Cherche le champ `counter int` dans LoadBalancer et son usage dans nextBackend().
+  Fix       : Remplace `int` par `atomic.Uint64` et utilise `.Add(1)` a la place de `++`.
+
+BUG #2 — Acces a backends[idx] sans verifier len(backends) → panic
+  Symptome  : panic: index out of range
+              Se produit si la liste de backends est vide (tous en maintenance).
+  Indice    : Cherche le calcul de idx dans nextBackend() — len(backends) peut etre 0.
+  Fix       : Ajoute un check `if len(lb.backends) == 0 { return nil }` avant le modulo.
+
+BUG #3 — Goroutine health check sans stop channel → goroutine leak
+  Symptome  : Chaque appel a StartHealthCheck() spawn une goroutine qui tourne a jamais.
+              En prod (redeploys, tests) : accumulation de goroutines zombie.
+  Indice    : Cherche la goroutine dans StartHealthCheck() — pas de canal d'arret.
+  Fix       : Ajoute un champ `stopCh chan struct{}` dans LoadBalancer.
+              Dans la goroutine : `select { case <-ticker.C: ... case <-lb.stopCh: return }`
+              Ajoute une methode Stop() { close(lb.stopCh) }.
+
+BUG #4 — req.Body lu deux fois (ReadCloser non rembobinable) → body vide au backend
+  Symptome  : Le backend recoit des requetes POST avec un body vide.
+              Le proxy lit req.Body pour le logging, puis le passe a la requete upstream.
+  Indice    : Cherche la lecture de req.Body dans ServeHTTP() avant de creer outReq.
+  Fix       : Meme pattern que exam02 :
+              bodyBytes, _ := io.ReadAll(req.Body)
+              req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+              // utilise bodyBytes pour le log, req.Body est restaure pour l'upstream
+
+VALIDATION
+----------
+  go run  phase4-infrastructure/exams/exam04_mini_lb.go
+  go run -race phase4-infrastructure/exams/exam04_mini_lb.go
+
+Apres correction :
+  - Aucune race condition detectee
+  - Pas de panic si backends vide
+  - Les goroutines health check se terminent proprement
+  - Les POST transmettent le body complet
+
+CONCEPTS CLES
+-------------
+- atomic.Uint64.Add(1)        : seule operation safe pour un compteur concurrent
+- Guard clause len == 0       : toujours valider avant d'indexer un slice
+- Stop channel                : pattern standard pour stopper les goroutines background
+- io.NopCloser(bytes.Reader)  : seule facon de "rembobiner" un io.ReadCloser

@@ -1,0 +1,101 @@
+================================================================================
+  PHASE 4 — GC Tuning, sync.Pool, Escape Analysis
+  (Debloque apres validation de la Phase 3)
+================================================================================
+
+AVERTISSEMENT
+-------------
+Ce contenu est reserve aux candidats qui ont valide les Phases 1 a 3.
+Lire ces notes sans les prerequis = illusion de connaissance.
+Un interviewer senior DETECTERA immediatement si tu recites sans comprendre.
+
+THEMES COUVERTS EN PHASE 4
+----------------------------
+
+[4.1] GARBAGE COLLECTOR EN GO
+  - Algorithme : Tri-color concurrent mark-and-sweep
+  - Le GC cause des "STW pauses" (Stop The World) : inacceptable en HFT
+  - GOGC : variable d'environnement pour tuner le GC
+    GOGC=100 (defaut)  : GC lance quand heap double
+    GOGC=200           : GC lance quand heap triple (moins frequent, plus de RAM)
+    GOGC=off           : Desactive le GC (dangereux, reserve aux cas extremes)
+  - runtime.GC()       : Forcer le GC manuellement (entre deux cycles de marche)
+  - runtime/debug.SetGCPercent()
+
+[4.2] SYNC.POOL — Recycler la memoire
+  - Probleme : allouer des milliers d'objets Order/Trade par seconde
+    => le GC doit tous les collecter => pauses => latence
+  - Solution : sync.Pool recycle les objets au lieu de les allouer/collecter
+  - ATTENTION : sync.Pool peut vider son contenu a chaque GC run.
+    Ne pas l'utiliser pour du stockage persistant.
+
+  Exemple typique :
+    var orderPool = sync.Pool{
+        New: func() interface{} {
+            return &Order{}
+        },
+    }
+    o := orderPool.Get().(*Order)
+    // ... utiliser o ...
+    o.reset() // remettre a zero avant de rendre
+    orderPool.Put(o)
+
+[4.3] ESCAPE ANALYSIS
+  - Le compilateur Go decide si une variable vit sur la STACK ou le HEAP.
+  - Stack : allocation/liberation gratuite (frame pointer move)
+  - Heap  : alloue par malloc, collecte par GC => latence
+  - Une variable "escape" vers le heap quand :
+    * Son adresse est retournee par une fonction
+    * Elle est passee a une interface{}
+    * Elle est capturee dans une closure
+    * Elle est trop grande pour la stack
+
+  Commande pour voir l'escape analysis :
+    go build -gcflags="-m -m" ./...
+
+  Questions d'entretien :
+    "Quand une variable escape vers le heap ?"
+    "Comment eviter les allocations dans le hot path ?"
+
+[4.4] PPROF — PROFILING
+  - go tool pprof : analyser CPU, memoire, goroutines
+  - net/http/pprof : endpoint HTTP pour profiling en live
+  - go test -bench=. -benchmem -cpuprofile=cpu.prof
+  - go tool pprof cpu.prof
+
+[4.5] CHANNEL vs MUTEX — QUAND CHOISIR ?
+  - Mutex  : proteger une ressource partagee (ex: order book)
+  - Channel: communiquer des donnees entre goroutines
+  - Regle Go : "Don't communicate by sharing memory;
+                share memory by communicating."
+  - Mais en HFT : mutex peut etre plus rapide que channel
+    (pas de context switch, pas d'allocation de channel buffer)
+
+[4.6] LOCK-FREE DATA STRUCTURES
+  - sync/atomic : operations atomiques sans mutex
+  - cas (Compare-And-Swap) : pattern lock-free
+  - atomic.CompareAndSwapInt64()
+  - Plus rapide que mutex pour des compteurs/flags simples
+
+QUESTIONS PIEGES D'ENTRETIEN PHASE 4
+--------------------------------------
+Q: "Quelle est la difference entre sync.Mutex et sync.RWMutex ?"
+R: RWMutex permet plusieurs lecteurs simultanement. Utiliser quand les
+   lectures sont beaucoup plus frequentes que les ecritures (ex: order book
+   lu constamment, modifie moins souvent).
+
+Q: "Qu'est-ce qu'un false sharing ?"
+R: Deux goroutines modifient des variables DIFFERENTES mais sur la MEME
+   cache line CPU (64 bytes). Le CPU invalide la cache de l'autre core =>
+   degradation de performance. Solution : padding ou separation des variables.
+
+Q: "Comment mesures-tu la latence de ton systeme ?"
+R: time.Since() pour la latence applicative. Pour la latence reelle (HW),
+   utiliser RDTSC (CPU timestamp counter) via assembleur ou cgo.
+   Histogram de latence : utiliser HdrHistogram (pas de moyenne : c'est
+   insuffisant pour la latence tail P99/P999).
+
+================================================================================
+  Ces notes seront completees au fur et a mesure que tu avances.
+  Elles ne seront utiles qu'apres avoir PRATIQUE les phases precedentes.
+================================================================================

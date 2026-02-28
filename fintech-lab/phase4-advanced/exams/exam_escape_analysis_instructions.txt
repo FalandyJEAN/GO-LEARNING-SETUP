@@ -1,0 +1,83 @@
+================================================================================
+  EXAMEN PHASE 4-B — "Escape Analysis : Stack vs Heap"
+  Niveau    : Expert
+  Concepts  : Escape analysis, stack allocation, heap allocation, inlining
+  Duree     : 90 minutes
+================================================================================
+
+CONTEXTE METIER
+---------------
+Le profiler CPU montre que le matching engine passe 40% de son temps
+dans le garbage collector. L'escape analysis revele que des variables
+qui devraient vivre sur la stack s'echappent vers le heap inutilement.
+
+Chaque echappement vers le heap = allocation = pression GC = latence.
+En HFT : objectif = 0 allocation dans le hot path de matching.
+
+BUG #1 : Retourner l'adresse d'une variable locale => escape vers heap
+  func newTrade() *Trade { return &Trade{...} }
+  La variable Trade "escape" vers le heap car son adresse sort de la fonction.
+  Solution : passer un pointeur pre-alloue, ou retourner par valeur.
+
+BUG #2 : Passer une valeur a une interface{} => boxing => escape vers heap
+  Interface{} necessite que la valeur soit sur le heap (boxing).
+  fmt.Println() prend des interface{} => les arguments echappent vers le heap.
+  Solution : eviter fmt.* dans le hot path. Utiliser des writers bufferises.
+
+BUG #3 : Closure capturant une variable => escape vers heap
+  La variable capturee par une closure est allouee sur le heap.
+  Solution : passer la valeur en parametre a la closure.
+
+BUG #4 : Slice avec capacite inconnue a la compilation => heap
+  make([]Trade, 0) alloue sur le heap.
+  [10]Trade{} (tableau de taille fixe) vit sur la stack.
+  Solution : utiliser des tableaux de taille fixe quand possible.
+
+COMMANDES
+----------
+  # Voir l'escape analysis du compilateur
+  go build -gcflags="-m -m" ./phase4-advanced/exams/exam_escape_analysis.go 2>&1
+
+  # Voir uniquement les echappements (filtre les details)
+  go build -gcflags="-m" ./phase4-advanced/exams/exam_escape_analysis.go 2>&1 | grep "escapes"
+
+  # Benchmark pour mesurer les allocations
+  go test ./phase4-advanced/exams/ -bench=BenchmarkHotPath -benchmem -count=5
+
+INTERPRETER L'ESCAPE ANALYSIS
+-------------------------------
+  Output du compilateur :
+  ./exam.go:42:12: &Trade{} escapes to heap    => Bad : allocation sur heap
+  ./exam.go:67:14: Trade does not escape        => Good : sur la stack
+  ./exam.go:89:23: inlining call to calcMid    => Good : fonction inlinee (pas d'appel)
+
+  Lire de haut en bas. Se concentrer sur les lignes du hot path.
+
+REGLES D'OR POUR EVITER LES ECHAPPEMENTS
+------------------------------------------
+  1. Retourner des VALEURS (structs) plutot que des POINTEURS depuis les fonctions.
+     Go peut optimiser le "return by value" mieux qu'on ne le pense (RVO).
+
+  2. Ne jamais passer des types concrets a interface{} dans le hot path.
+     Eviter fmt.Println, fmt.Sprintf dans les chemins critiques.
+
+  3. Passer des valeurs aux closures, pas des references.
+     go func(o Order) { ... }(order) // Valeur passee par copie = stack
+
+  4. Pre-allouer les slices avec une capacite connue.
+     make([]Trade, 0, 10) // 10 = capacite estimee = moins de reallocations
+
+  5. Utiliser des tableaux de taille fixe a la place des slices quand possible.
+     var buf [256]byte // Sur la stack
+     buf := make([]byte, 256) // Sur le heap
+
+CRITERES DE REUSSITE
+---------------------
+  [OBLIGATOIRE] go build -gcflags="-m" montre "does not escape" pour le hot path.
+  [OBLIGATOIRE] Les 4 bugs sont identifies avec la commande go build -gcflags.
+  [OBLIGATOIRE] Le benchmark montre 0 allocs/op pour le hot path corrige.
+  [BONUS] Expliquer la difference entre RVO (Return Value Optimization) et
+          escape analysis en Go.
+  [BONUS] Comparer les latences P50/P99 avant et apres correction.
+
+================================================================================

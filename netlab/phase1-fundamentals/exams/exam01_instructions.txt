@@ -1,0 +1,55 @@
+EXAM 01 — Port Scanner
+======================
+
+CONTEXTE
+--------
+Tu es SRE chez une fintech. Un collegue a ecrit un scanner de ports
+pour auditer l'infrastructure. Le code compile mais produit des resultats
+incorrects, se bloque parfois, et plante sous go run -race.
+
+OBJECTIF
+--------
+Trouve et corrige les 4 bugs dans exam01_port_scanner.go.
+
+BUGS A TROUVER (indices)
+------------------------
+
+BUG #1 — Timeout manquant
+  Symptome  : Le scan bloque indefiniment sur des ports filtres par un firewall.
+              (ports "stealth" : la connexion ne recoit ni RST ni SYN-ACK)
+  Indice    : Cherche l'appel a net.Dial dans scanPort().
+  Fix       : Utilise une variante avec timeout.
+
+BUG #2 — Goroutines illimitees
+  Symptome  : Sur un range /16 (65535 ports), le programme OOM/crash.
+              Chaque goroutine consomme ~2-8 KB de stack + un file descriptor.
+  Indice    : Cherche la boucle de lancement des goroutines dans scanRange().
+  Fix       : Limite la concurrence avec un semaphore (channel de N slots).
+
+BUG #3 — Race condition
+  Symptome  : go run -race signale une data race sur results.
+              En production : resultats perdus, corruption silencieuse.
+  Indice    : Cherche l'append dans les goroutines.
+  Fix       : Utilise un channel pour collecter les resultats (pas de mutex sur slice).
+
+BUG #4 — Channel ferme trop tot
+  Symptome  : panic: send on closed channel
+              Se declenche quand les goroutines essaient d'ecrire apres close().
+  Indice    : Cherche le close(results) par rapport au sync.WaitGroup.
+  Fix       : close() seulement apres wg.Wait() — dans une goroutine separee.
+
+VALIDATION
+----------
+Apres correction :
+  go run  phase1-fundamentals/exams/exam01_port_scanner.go
+  go run -race phase1-fundamentals/exams/exam01_port_scanner.go
+
+Le scan de 127.0.0.1 ports 1-1024 doit se terminer en < 5 secondes
+et lister les ports ouverts sans race detector warning.
+
+CONCEPTS CLES
+-------------
+- net.DialTimeout        : toujours specifier un timeout pour les connexions reseau
+- Semaphore pattern      : chan struct{} avec capacite N = worker pool implicite
+- Channel fan-out/fan-in : goroutines → channel → aggregateur
+- sync.WaitGroup         : attendre que toutes les goroutines terminent avant close()

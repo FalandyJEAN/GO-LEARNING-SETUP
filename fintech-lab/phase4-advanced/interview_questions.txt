@@ -1,0 +1,244 @@
+================================================================================
+  PHASE 4 — Questions d'Entretien : Go HFT & Low Latency
+  Format : Question -> Niveau -> Ce qu'ils veulent entendre
+================================================================================
+
+Ces questions sont tirees d'entretiens reels dans des banques tier-1
+et des hedge funds (Citadel, Jane Street, Goldman Sachs, Jump Trading).
+Le niveau "ELIMINATOIRE" signifie qu'une mauvaise reponse met fin a l'entretien.
+
+================================================================================
+  SECTION A : Goroutines & Scheduler
+================================================================================
+
+[A1] "Comment fonctionne le scheduler Go ?" [DIFFICILE]
+------------------------------------------------------
+Reponse attendue :
+  - Modele M:N : M goroutines sur N threads OS (M >> N typiquement).
+  - Runtime Go maintient un pool de P "processeurs logiques" (GOMAXPROCS).
+  - Chaque P a une run queue locale de goroutines.
+  - Work stealing : un P idle peut voler des goroutines d'un autre P.
+  - Goroutines cooperatives : yielding aux points de preemption
+    (appels de fonctions, operations I/O, time.Sleep, channel ops).
+  - Depuis Go 1.14 : preemption asynchrone (interruption via signal).
+
+[A2] "Quelle est la difference entre GOMAXPROCS=1 et GOMAXPROCS=8 ?" [MOYEN]
+--------------------------------------------------------------------------
+  - GOMAXPROCS=1 : un seul thread OS. Les goroutines sont concurrentes
+    mais PAS paralleles. Pas de data race possible sur des operations simples.
+  - GOMAXPROCS=8 : 8 threads. Parallelisme reel. Data races possibles.
+  - Par defaut : GOMAXPROCS = runtime.NumCPU().
+  - En HFT : parfois volontairement fixe a 1 pour eviter les races et
+    le context switching overhead.
+
+[A3] "Quand une goroutine est-elle preemptee ?" [DIFFICILE]
+--------------------------------------------------------
+  Avant Go 1.14 : uniquement aux points de preemption (function calls).
+  Une goroutine CPU-bound sans appels de fonctions pouvait monopoliser un P.
+
+  Depuis Go 1.14 : preemption asynchrone via signals SIGURG.
+  Le runtime envoie SIGURG au thread qui execute une goroutine "longue"
+  (> ~10ms sans preemption) pour la forcer a yielder.
+
+================================================================================
+  SECTION B : Memoire & GC
+================================================================================
+
+[B1] "Comment fonctionne le GC de Go ?" [ELIMINATOIRE en entretien senior]
+----------------------------------------------------------------------
+Reponse attendue :
+  - Algorithme : Tri-color concurrent mark-and-sweep.
+  - Trois couleurs : blanc (non visite), gris (en cours), noir (visite).
+  - Concurrent : tourne en parallele avec l'application (pas stop-the-world pur).
+  - STW phases courtes :
+    1. STW : activer la write barrier (< 0.5ms)
+    2. Concurrent marking (en parallele avec l'app)
+    3. STW : termination marking (< 0.5ms)
+    4. Concurrent sweeping
+  - GOGC=100 (defaut) : GC se declenche quand le heap double.
+
+[B2] "C'est quoi une write barrier et pourquoi Go en a besoin ?" [TRES DIFFICILE]
+--------------------------------------------------------------------------
+  Pendant le marking concurrent, l'application peut modifier des pointeurs.
+  Sans write barrier, le GC pourrait manquer des objets vivants.
+  La write barrier intercepte les ecritures de pointeurs et s'assure que
+  le GC voit les nouvelles references.
+  Cout : overhead de ~5-10% sur les ecritures de pointeurs pendant le GC.
+
+[B3] "Comment reduire les pauses GC en pratique ?" [MOYEN]
+------------------------------------------------------
+  1. Reduire les allocations (sync.Pool, value types, pre-allocation).
+  2. Augmenter GOGC (GOGC=200 = GC moins frequent mais heap plus grand).
+  3. runtime.GC() entre deux cycles de marche (ex: entre 9h et 9h01).
+  4. debug.SetGCPercent(-1) pendant les periodes critiques + GC manuel.
+  5. Utiliser des tableaux (stack) plutot que des slices (heap).
+  6. Eviter les interfaces dans les hot paths (boxing = allocations).
+
+[B4] "Qu'est-ce que l'escape analysis et comment l'utiliser ?" [MOYEN]
+--------------------------------------------------------------------
+  Le compilateur Go decide au compile-time si une variable vit sur la
+  stack (gratuit) ou le heap (GC overhead).
+
+  go build -gcflags="-m" pour voir les decisions.
+
+  Variables qui "escapen" vers le heap :
+  - Adresse retournee hors de la fonction (&localVar)
+  - Passee a une interface{} (boxing)
+  - Capturee par une closure
+  - Trop grande pour la stack (> ~8MB)
+
+================================================================================
+  SECTION C : Channels & Synchronisation
+================================================================================
+
+[C1] "Quand utiliser un channel vs un mutex ?" [MOYEN - ELIMINATOIRE si faux]
+------------------------------------------------------------------------
+  Regle Go : "Don't communicate by sharing memory, share memory by communicating."
+
+  Mais en HFT, c'est plus nuance :
+
+  Utiliser CHANNEL quand :
+  - Transferer la propriete d'une donnee entre goroutines.
+  - Signaler des evenements (done, error).
+  - Implementer des pipelines de traitement.
+
+  Utiliser MUTEX quand :
+  - Proteger un etat partage accede par plusieurs goroutines.
+  - Les sections critiques sont tres courtes.
+  - La performance est critique (mutex plus rapide que channel pour cache).
+
+  En HFT concret : un order book utilise un mutex (acces tres frequents,
+  sections critiques courtes). Un pipeline de traitement utilise des channels.
+
+[C2] "Que se passe-t-il si on envoie sur un channel nil ?" [PIEGE CLASSIQUE]
+------------------------------------------------------------------------
+  var ch chan int
+  ch <- 1     // Bloque POUR TOUJOURS (deadlock si seule goroutine)
+  <-ch        // Bloque POUR TOUJOURS
+  close(ch)   // PANIC : close of nil channel
+
+[C3] "Comment implementer un timeout sur une operation de channel ?" [FACILE]
+------------------------------------------------------------------------
+  select {
+  case result := <-resultCh:
+      return result, nil
+  case <-time.After(100 * time.Millisecond):
+      return nil, errors.New("timeout")
+  }
+
+  Attention : time.After() alloue un timer. Pour eviter les allocations :
+  timer := time.NewTimer(100 * time.Millisecond)
+  defer timer.Stop()
+  select {
+  case result := <-resultCh:
+      return result, nil
+  case <-timer.C:
+      return nil, errors.New("timeout")
+  }
+
+================================================================================
+  SECTION D : Performance & Design
+================================================================================
+
+[D1] "Comment mesureriez-vous la latence de votre systeme ?" [CLES]
+-----------------------------------------------------------------
+  Mauvaise reponse : "time.Since()" et calculer la moyenne.
+
+  Bonne reponse :
+  - Utiliser des histogrammes de latence, PAS les moyennes.
+  - Metriques importantes : P50, P95, P99, P999 (percentiles).
+  - La latence tail (P999) est souvent la plus critique en HFT.
+  - Library : HdrHistogram (High Dynamic Range Histogram).
+  - Pour la latence reelle (nanoseconde) : RDTSC (CPU timestamp counter).
+  - Eviter time.Now() dans le hot path (syscall overhead).
+
+[D2] "Qu'est-ce que le false sharing et comment l'eviter ?" [TRES DIFFICILE]
+---------------------------------------------------------------------
+  False sharing : deux goroutines sur des CPU differents modifient des
+  variables DIFFERENTES mais sur la MEME cache line (64 bytes).
+  Le protocole de coherence cache (MESI) invalide la cache line entiere
+  => chaque modification force l'autre CPU a recharger la ligne entiere.
+
+  Detection : perf stat -e cache-misses, L1-dcache-load-misses.
+
+  Solution : aligner les variables sur des cache lines separees.
+  type Counter struct {
+      value int64
+      _     [56]byte // padding pour remplir la cache line (64 - 8 = 56)
+  }
+
+[D3] "Comment implementer un lock-free queue en Go ?" [EXPERT]
+----------------------------------------------------------
+  Utiliser sync/atomic avec Compare-And-Swap (CAS).
+
+  Algorithme Michael-Scott Queue (lock-free FIFO) :
+  - Node avec Next *Node
+  - Head et Tail sont des pointeurs atomiques
+  - Enqueue : CAS sur Tail.Next
+  - Dequeue : CAS sur Head
+
+  En Go, disponible via : sync/atomic et unsafe.Pointer.
+  Librairie pretes : https://github.com/enriquebris/goconcurrentqueue
+
+[D4] "Pourquoi utilise-t-on des prix en entiers (int64) plutot qu'en float64 ?" [FACILE]
+------------------------------------------------------------------------------------
+  Erreur de representation IEEE 754 : 0.1 + 0.2 != 0.3 en float.
+  Sur des millions de transactions, les erreurs d'arrondi s'accumulent.
+  En prod : prix en "ticks" ou "centimes" = int64.
+  Ex: $189.50 = 18950 (centimes) ou 1895000000 (nanodollars).
+
+  Pour les options : prix en fractions (1/256 en marches americains).
+  Utiliser des fractions rationnelles (numerateur/denominateur int64).
+
+================================================================================
+  SECTION E : Questions Pieges Finales
+================================================================================
+
+[E1] "Quelle est la difference entre make() et new() ?" [FACILE mais piege]
+-----------------------------------------------------------------------
+  new(T)    : alloue de la memoire pour T, retourne *T (zero value)
+              Peu utilise en pratique.
+  make(T)   : initialise les slices, maps, channels (types reference).
+              Retourne T (pas *T).
+              UNIQUEMENT pour slice, map, chan.
+
+[E2] "Peut-on faire confiance a time.Sleep pour une precision microseconde ?" [NON]
+---------------------------------------------------------------------------
+  NON. time.Sleep(1 * time.Microsecond) dort souvent 1-100ms en pratique
+  a cause du scheduler OS et du timer resolution.
+  Pour des delais precis en HFT : busy-wait (spin loop) avec time.Now().
+  for time.Now().Before(deadline) {} // Consomme le CPU mais ultra-precis.
+
+[E3] "Qu'est-ce qu'un memory model en Go ?" [DIFFICILE]
+---------------------------------------------------
+  Le memory model Go definit les garanties sur la visibilite des
+  operations memoire entre goroutines.
+
+  Regle cle : "If event e1 happens before event e2, and e2 happens before
+  the goroutine reading v, then the read is guaranteed to observe the write."
+
+  Primitives "happens-before" en Go :
+  - Channel send happens-before the corresponding receive.
+  - Closing a channel happens-before a receive that returns zero value.
+  - sync.Mutex Lock/Unlock, sync.Once.Do.
+
+  Sans ces primitives : le compilateur et le CPU peuvent reordonner les
+  instructions. Un flag bool non protege entre goroutines peut ne jamais
+  etre visible (infinite loop).
+
+================================================================================
+  CONSEIL FINAL
+================================================================================
+
+En entretien HFT, la connaissance technique est necessaire mais insuffisante.
+Ce qu'ils evaluent vraiment :
+
+  1. Raisonnement sous pression : peuvent-ils resoudre un probleme nouveau ?
+  2. Conscience des trade-offs : "ca depend de..." suivi d'une analyse reelle.
+  3. Experience pratique : avoir rencontre ces bugs en production, pas lu.
+
+Ne memorise pas ces reponses. Comprends-les. Pratique sur le code.
+Un candidat qui dit "je ne sais pas mais voici comment je l'analyserais"
+vaut mieux qu'un candidat qui recite sans comprendre.
+
+================================================================================

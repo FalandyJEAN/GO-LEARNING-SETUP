@@ -1,0 +1,118 @@
+================================================================================
+  PHASE 1 — BOOTCAMP ACCELERE : Zero to 1
+  Duree estimee : 3 a 5 heures de travail intensif
+================================================================================
+
+ETAPE 0 : VERIFIER TON ENVIRONNEMENT
+-------------------------------------
+Lance ces commandes dans ton terminal. Si l'une echoue, corrige avant de
+continuer. On ne construit pas sur des fondations instables.
+
+  go version
+  # Attendu : go version go1.22.x ou superieur
+
+  go env GOPATH
+  # Affiche le chemin de ton workspace Go
+
+  go env GOOS GOARCH
+  # Affiche ton OS et architecture (ex: windows amd64)
+
+
+ETAPE 1 : INITIALISER LE MODULE
+---------------------------------
+Un module Go = un projet avec ses dependances declarees dans go.mod.
+C'est l'equivalent de package.json (Node) ou pom.xml (Java).
+
+  cd fintech-lab
+  go mod init fintech-lab
+
+  # Resultat : creation de go.mod
+  # Contenu de go.mod :
+  #   module fintech-lab
+  #   go 1.22
+
+
+ETAPE 2 : LANCER TON PREMIER SCRIPT
+-------------------------------------
+  go run phase1-bootcamp/main.go
+
+  # Si tu vois "ENVIRONNEMENT OK" : tu peux passer a l'examen.
+  # Si erreur de compilation : lis le message. Go est tres explicite.
+
+
+ETAPE 3 : CONCEPTS A MAITRISER EN PHASE 1
+-------------------------------------------
+Voici les concepts fondamentaux couverts par les examens de cette phase.
+Ne les apprends pas par coeur — apprends-les en lisant la doc officielle
+quand tu es bloque sur le code de l'examen.
+
+  [A] Variables et types
+      var x int = 42
+      y := 3.14        // short declaration (dans une fonction uniquement)
+      const Pi = 3.14159
+
+  [B] Types de base
+      int, int8, int16, int32, int64
+      float32, float64
+      string, bool, byte (alias uint8), rune (alias int32)
+
+  [C] Fonctions
+      func add(a int, b int) int { return a + b }
+      func divide(a, b float64) (float64, error) { ... }  // multi-return
+
+  [D] Structs (pas de classes en Go)
+      type Order struct {
+          ID    string
+          Price float64
+          Qty   int
+      }
+
+  [E] Interfaces
+      type Matcher interface {
+          Match(order Order) bool
+      }
+
+  [F] Slices et Maps
+      prices := []float64{100.5, 101.0, 99.8}
+      book   := map[string]float64{"AAPL": 189.5}
+
+  [G] Boucles (Go n'a QUE for)
+      for i := 0; i < 10; i++ { ... }
+      for _, v := range prices  { ... }
+
+  [H] Gestion d'erreurs (CRITIQUE en Go)
+      result, err := someFunc()
+      if err != nil {
+          return fmt.Errorf("context: %w", err)
+      }
+
+  [I] Pointeurs (concept cle pour la performance)
+      p := &x         // adresse de x
+      *p = 100        // dereferencement
+
+
+ETAPE 4 : RESSOURCES OFFICIELLES (lire sur besoin, pas en entier)
+-------------------------------------------------------------------
+  - Tour of Go (interactif) : https://go.dev/tour/
+  - Effective Go            : https://go.dev/doc/effective_go
+  - Go Spec (reference)     : https://go.dev/ref/spec
+  - Go Packages             : https://pkg.go.dev/
+
+
+ETAPE 5 : COMMANDES GO ESSENTIELLES
+-------------------------------------
+  go run fichier.go          # Compile et execute
+  go build ./...             # Compile tout le projet
+  go test ./...              # Lance les tests
+  go vet ./...               # Analyse statique (detecte les bugs courants)
+  go fmt ./...               # Formate le code (obligatoire en Go)
+  go mod tidy                # Nettoie les dependances
+  go doc fmt.Println         # Documentation inline d'une fonction
+
+
+PROCHAINE ETAPE
+---------------
+Lance ton premier script (main.go), puis lis les instructions de l'examen :
+  phase1-bootcamp/exams/exam01_instructions.txt
+
+================================================================================
